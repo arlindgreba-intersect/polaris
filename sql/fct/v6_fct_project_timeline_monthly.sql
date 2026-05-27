@@ -1,81 +1,13 @@
 -- =============================================================================
--- Polaris V6 — fct Layer Sprint 1
--- dim_time.dim_month + fct_finance.project_timeline_monthly
--- =============================================================================
--- Source values confirmed from Copy - Roman III LCOE Model V6 - Case 4:
---   Dev Start (all techs):  2024-01-31
---   Solar Const Start:      2028-03-31  SC: 2029-09-30  EoUL: 2064-09-30
---   Wind  Const Start:      2028-04-30  SC: 2029-10-31  EoUL: 2059-10-31
---   Gas   Const Start:      2027-03-31  SC: 2029-03-31  EoUL: 2049-03-31
---   BESS  Const Start:      2027-03-31  SC: 2029-03-31  EoUL: 2049-03-31
---   DTC   Const Start:      2027-11-30  SC: 2029-03-31  EoUL: 2049-03-31
---   Discount rate: 4.35% (not used — V6 is undiscounted, confirmed from User Guide)
--- =============================================================================
-
-
--- =============================================================================
--- STEP 1: dim_time.dim_month
--- 576-row monthly calendar anchored to Solar Dev Start (2024-01-31)
--- Runs from 2024-01-31 through 2071-12-31 (covers all tech useful lives)
--- Every fct model joins to this on calendar_month_end
--- =============================================================================
-
-CREATE OR REPLACE TABLE `sandbox-lakehouse.dim_time.dim_month` AS
-
-WITH spine AS (
-  -- Generate one row per month, each date = true last day of that month
-  -- Uses LAST_DAY() to guarantee correct end-of-month regardless of Feb/30/31
-  SELECT
-    LAST_DAY(month_start, MONTH) AS calendar_month_end
-  FROM UNNEST(
-    GENERATE_DATE_ARRAY(
-      DATE '2024-01-01',
-      DATE '2071-12-01',
-      INTERVAL 1 MONTH
-    )
-  ) AS month_start
-)
-
-SELECT
-  -- Primary key
-  calendar_month_end,
-
-  -- Calendar fields
-  EXTRACT(YEAR  FROM calendar_month_end)  AS calendar_year,
-  EXTRACT(MONTH FROM calendar_month_end)  AS calendar_month_num,
-  FORMAT_DATE('%b', calendar_month_end)   AS calendar_month_abbr,
-  FORMAT_DATE('%Y-%m', calendar_month_end) AS year_month,
-
-  -- Row number from start of calendar (1 = Jan 2024)
-  ROW_NUMBER() OVER (ORDER BY calendar_month_end) AS month_seq,
-
-  -- Months elapsed since Solar Dev Start (2024-01-31 = month 0)
-  DATE_DIFF(
-    calendar_month_end,
-    DATE '2024-01-31',
-    MONTH
-  ) AS months_since_dev_start,
-
-  -- Fiscal half-year flag (useful for liquidity reporting)
-  CASE
-    WHEN EXTRACT(MONTH FROM calendar_month_end) <= 6 THEN 'H1'
-    ELSE 'H2'
-  END AS fiscal_half,
-
-  -- Calendar quarter
-  CONCAT('Q', CAST(CEIL(EXTRACT(MONTH FROM calendar_month_end) / 3.0) AS INT64))
-    AS calendar_quarter
-
-FROM spine
-ORDER BY calendar_month_end;
-
-
--- =============================================================================
--- STEP 2: fct_finance.project_timeline_monthly
--- One row per technology per calendar month
--- Flags: is_development, is_construction, is_operation
--- Also: operating_year_number, construction_month_number
--- Reads from: dim_time.dim_month + stg_finance.v6_stg_project_timeline
+-- Polaris V6 - fct_finance.project_timeline_monthly
+-- One row per (technology, calendar_month) covering dev / construction / operation.
+-- Drives the operating-life filter used by every downstream monthly fct table.
+--
+-- Notes:
+--   - dim_time.dim_month is built and owned by v6_dim_tables_v2.sql.
+--     (Previously this file also CREATE'd dim_month with a hardcoded date range;
+--      that has been removed - the v2 dynamic build is now the single source.)
+--   - The dim_month table must exist before running this file.
 -- =============================================================================
 
 CREATE OR REPLACE TABLE `sandbox-lakehouse.fct_finance.project_timeline_monthly` AS
