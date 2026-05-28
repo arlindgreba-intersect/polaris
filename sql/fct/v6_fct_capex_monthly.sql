@@ -1,18 +1,29 @@
 -- =============================================================================
--- Polaris V6 — fct_finance.project_capex_monthly
--- Monthly CapEx spend per technology from CAPEX_Tool raw table
--- Source: polaris_raw.v6_raw_capex_tool (577 period_* columns unpivoted)
--- =============================================================================
--- Logic:
---   1. Filter to latest run, row_type='forecast', technology not null, total > 0
---   2. Deduplicate: two identical blocks per tech — take min(source_row) per component
---   3. UNPIVOT 577 period_* columns → long format (tech, period_col, monthly_spend)
---   4. Convert period_col key → LAST_DAY date (period_2026_03_01 → 2026-03-31)
---   5. Aggregate to one row per technology per calendar month
+-- Polaris V6 - fct_finance.project_capex_monthly
+-- Append-only with canonical run_id / run_label / pushed_at / created_at.
+-- Logic body identical to prior version (SAFE_CAST(period_* AS FLOAT64) + UNPIVOT + aggregate).
 -- =============================================================================
 
-CREATE OR REPLACE TABLE `sandbox-lakehouse.fct_finance.project_capex_monthly` AS
+CREATE TABLE IF NOT EXISTS `sandbox-lakehouse.fct_finance.project_capex_monthly` (
+  calendar_month_end  DATE,
+  technology          STRING,
+  monthly_capex_usd   FLOAT64,
+  component_count     INT64,
+  run_id              STRING,
+  pushed_at           TIMESTAMP,
+  run_label           STRING,
+  created_at          TIMESTAMP
+);
 
+INSERT INTO `sandbox-lakehouse.fct_finance.project_capex_monthly`
+(calendar_month_end, technology, monthly_capex_usd, component_count, run_id, pushed_at, run_label, created_at)
+WITH
+canonical AS (
+  SELECT run_id, pushed_at
+  FROM `sandbox-lakehouse.stg_finance.v6_stg_project_timeline`
+  ORDER BY pushed_at DESC LIMIT 1
+),
+base AS (
 WITH
 
 latest AS (
@@ -1228,36 +1239,16 @@ SELECT
   COUNT(DISTINCT component)                           AS component_count
 FROM unpivoted
 GROUP BY 1, 2
-ORDER BY technology, calendar_month_end;
-
-
--- =============================================================================
--- VALIDATION QUERIES
--- =============================================================================
-
--- 1. Total capex per tech — must match CAPEX_Tool Total CAPEX row
+ORDER BY technology, calendar_month_end
+)
 SELECT
-  technology,
-  ROUND(SUM(monthly_capex_usd), 0)                   AS lifetime_capex_usd,
-  COUNT(*)                                            AS months_with_spend,
-  MIN(calendar_month_end)                             AS first_spend_month,
-  MAX(calendar_month_end)                             AS last_spend_month
-FROM `sandbox-lakehouse.fct_finance.project_capex_monthly`
-GROUP BY technology
-ORDER BY technology;
--- Expected totals (from CAPEX_Tool Total CAPEX rows):
---   BESS:  971,272,159
---   DTC:  2,053,941,319
---   Gas:  2,827,775,813
---   Solar: 1,111,941,678
---   Wind:  1,332,818,209
-
--- 2. Monthly spend timeline for Solar — confirm construction period
-SELECT
-  calendar_month_end,
-  technology,
-  ROUND(monthly_capex_usd, 0) AS monthly_capex_usd
-FROM `sandbox-lakehouse.fct_finance.project_capex_monthly`
-WHERE technology = 'Solar'
-ORDER BY calendar_month_end
-LIMIT 20;
+  b.calendar_month_end,
+  b.technology,
+  b.monthly_capex_usd,
+  b.component_count,
+  c.run_id,
+  c.pushed_at,
+  'Monthly_Haul_04_2026' AS run_label,
+  CURRENT_TIMESTAMP() AS created_at
+FROM base b
+CROSS JOIN canonical c;

@@ -1,36 +1,39 @@
 -- =============================================================================
--- Polaris V6 — fct_finance.depreciation_monthly
--- One row per technology per calendar month during operating life
--- 5-yr MACRS (Solar/Wind/BESS): five_yr_macrs_basis_usd × effective_tax_rate spread
---   evenly over the first 60 operating months (60 rows per tech)
--- 20-yr MACRS (Gas/DTC): twenty_yr_macrs_basis_usd × effective_tax_rate spread
---   evenly over the first 240 operating months (240 rows per tech)
--- Source: mart_finance.v6_silver_itc_inputs joined to fct_finance.project_timeline_monthly
---         (filtered to is_operation = TRUE)
+-- Polaris V6 - fct_finance.depreciation_monthly
+-- Append-only. run_id overridden with canonical timeline run_id.
 -- =============================================================================
 
-CREATE OR REPLACE TABLE `sandbox-lakehouse.fct_finance.depreciation_monthly` AS
+CREATE TABLE IF NOT EXISTS `sandbox-lakehouse.fct_finance.depreciation_monthly` (
+  calendar_month_end                    DATE,
+  technology                            STRING,
+  depreciation_tax_shield_monthly_usd   FLOAT64,
+  macrs_year_num                        INT64,
+  run_id                                STRING,
+  pushed_at                             TIMESTAMP,
+  run_label                             STRING,
+  created_at                            TIMESTAMP
+);
+
+INSERT INTO `sandbox-lakehouse.fct_finance.depreciation_monthly`
+(calendar_month_end, technology, depreciation_tax_shield_monthly_usd, macrs_year_num,
+ run_id, pushed_at, run_label, created_at)
 WITH
+canonical AS (
+  SELECT run_id, pushed_at
+  FROM `sandbox-lakehouse.stg_finance.v6_stg_project_timeline`
+  ORDER BY pushed_at DESC LIMIT 1
+),
 latest_itc AS (
   SELECT run_id FROM `sandbox-lakehouse.mart_finance.v6_silver_itc_inputs`
   ORDER BY pushed_at DESC LIMIT 1
 ),
 itc AS (
-  SELECT
-    technology,
-    five_yr_macrs_basis_usd,
-    twenty_yr_macrs_basis_usd,
-    effective_tax_rate,
-    run_id
+  SELECT technology, five_yr_macrs_basis_usd, twenty_yr_macrs_basis_usd, effective_tax_rate
   FROM `sandbox-lakehouse.mart_finance.v6_silver_itc_inputs`
   WHERE run_id = (SELECT run_id FROM latest_itc)
 ),
 timeline AS (
-  SELECT
-    calendar_month_end,
-    technology,
-    operating_month_num,
-    run_id
+  SELECT calendar_month_end, technology, operating_month_num
   FROM `sandbox-lakehouse.fct_finance.project_timeline_monthly`
   WHERE is_operation = TRUE
 )
@@ -38,11 +41,9 @@ SELECT
   t.calendar_month_end,
   t.technology,
   CASE
-    WHEN t.technology IN ('Solar','Wind','BESS')
-     AND t.operating_month_num BETWEEN 1 AND 60
+    WHEN t.technology IN ('Solar','Wind','BESS') AND t.operating_month_num BETWEEN 1 AND 60
       THEN (COALESCE(i.five_yr_macrs_basis_usd, 0) * COALESCE(i.effective_tax_rate, 0.21)) / 60.0
-    WHEN t.technology IN ('Gas','DTC')
-     AND t.operating_month_num BETWEEN 1 AND 240
+    WHEN t.technology IN ('Gas','DTC') AND t.operating_month_num BETWEEN 1 AND 240
       THEN (COALESCE(i.twenty_yr_macrs_basis_usd, 0) * COALESCE(i.effective_tax_rate, 0.21)) / 240.0
     ELSE 0.0
   END AS depreciation_tax_shield_monthly_usd,
@@ -53,25 +54,10 @@ SELECT
       THEN CAST(CEIL(t.operating_month_num / 12.0) AS INT64)
     ELSE NULL
   END AS macrs_year_num,
-  COALESCE(i.run_id, t.run_id) AS run_id
+  c.run_id,
+  c.pushed_at,
+  'Monthly_Haul_04_2026' AS run_label,
+  CURRENT_TIMESTAMP() AS created_at
 FROM timeline t
 LEFT JOIN itc i ON i.technology = t.technology
-ORDER BY t.technology, t.calendar_month_end;
-
-
--- =============================================================================
--- VALIDATION QUERIES
--- =============================================================================
-
--- 1. Lifetime depreciation tax shield, macrs_year_num coverage, and month count
-SELECT
-  technology,
-  ROUND(SUM(depreciation_tax_shield_monthly_usd), 2) AS lifetime_dep_shield,
-  COUNT(DISTINCT macrs_year_num)                    AS macrs_years,
-  COUNTIF(depreciation_tax_shield_monthly_usd > 0)  AS months_with_dep
-FROM `sandbox-lakehouse.fct_finance.depreciation_monthly`
-GROUP BY technology
-ORDER BY technology;
--- Expected:
---   Solar/Wind/BESS: 60 months, 5 macrs_year_num values
---   Gas/DTC: 240 months, 20 macrs_year_num values
+CROSS JOIN canonical c;

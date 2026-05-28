@@ -1,142 +1,75 @@
 -- =============================================================================
--- Polaris V6 — fct_finance.generation_monthly
--- Monthly generation per technology over the full operating life
--- LCOE denominator for Solar and Wind ($/MWh)
--- Gas generation used for fuel cost calculation only
--- BESS and DTC have no MWh generation denominator
--- =============================================================================
--- Source: v6_silver_generation_profile already has y1_monthly_generation_mwh
---         (Y1 annual × monthly seasonality factor) pre-computed per month_number
--- Degradation: linear — gen_yr_N = y1_monthly × (1 - ann_deg_rate × (op_year - 1))
--- Methodology: NO time value of money (undiscounted per V6 User Guide)
+-- Polaris V6 - fct_finance.generation_monthly
+-- Append-only with canonical run_id / run_label / pushed_at / created_at.
+-- Preserves silver_run_id / silver_pushed_at for source-lineage traceability.
 -- =============================================================================
 
-CREATE OR REPLACE TABLE `sandbox-lakehouse.fct_finance.generation_monthly` AS
+CREATE TABLE IF NOT EXISTS `sandbox-lakehouse.fct_finance.generation_monthly` (
+  calendar_month_end           DATE,
+  technology                   STRING,
+  operating_year_num           INT64,
+  operating_month_num          INT64,
+  degradation_factor           FLOAT64,
+  y1_monthly_generation_mwh    FLOAT64,
+  monthly_generation_mwh       FLOAT64,
+  y1_generation_mwh            FLOAT64,
+  annual_degradation_rate      FLOAT64,
+  useful_life_years            FLOAT64,
+  silver_run_id                STRING,
+  silver_pushed_at             TIMESTAMP,
+  run_id                       STRING,
+  pushed_at                    TIMESTAMP,
+  run_label                    STRING,
+  created_at                   TIMESTAMP
+);
 
+INSERT INTO `sandbox-lakehouse.fct_finance.generation_monthly`
+(calendar_month_end, technology, operating_year_num, operating_month_num,
+ degradation_factor, y1_monthly_generation_mwh, monthly_generation_mwh,
+ y1_generation_mwh, annual_degradation_rate, useful_life_years,
+ silver_run_id, silver_pushed_at, run_id, pushed_at, run_label, created_at)
 WITH
-
--- Silver generation profile — one row per tech per month_number (1-12)
--- Already has y1_monthly_generation_mwh and annual_degradation_rate
-gen AS (
-  SELECT
-    technology,
-    month_number,
-    y1_monthly_generation_mwh,
-    annual_degradation_rate,
-    y1_generation_mwh,
-    useful_life_years,
-    run_id,
-    pushed_at
-  FROM `sandbox-lakehouse.mart_finance.v6_silver_generation_profile`
-  WHERE run_id = (
-    SELECT run_id FROM `sandbox-lakehouse.mart_finance.v6_silver_generation_profile`
-    ORDER BY pushed_at DESC LIMIT 1
-  )
-  AND technology IN ('Solar', 'Wind', 'Gas')
+canonical AS (
+  SELECT run_id, pushed_at
+  FROM `sandbox-lakehouse.stg_finance.v6_stg_project_timeline`
+  ORDER BY pushed_at DESC LIMIT 1
 ),
-
--- Operating months from timeline
-timeline AS (
-  SELECT
-    calendar_month_end,
-    calendar_month_num,
-    technology,
-    operating_year_num,
-    operating_month_num
+latest_silver AS (
+  SELECT run_id, pushed_at
+  FROM `sandbox-lakehouse.mart_finance.v6_silver_project_inputs`
+  ORDER BY pushed_at DESC LIMIT 1
+),
+silver AS (
+  SELECT technology, y1_generation_mwh, annual_degradation_rate, useful_life_years,
+         run_id AS silver_run_id, pushed_at AS silver_pushed_at
+  FROM `sandbox-lakehouse.mart_finance.v6_silver_project_inputs`
+  WHERE run_id = (SELECT run_id FROM latest_silver)
+    AND technology IN ('Solar','Wind','Gas')
+),
+ops AS (
+  SELECT calendar_month_end, technology, operating_year_num, operating_month_num
   FROM `sandbox-lakehouse.fct_finance.project_timeline_monthly`
   WHERE is_operation = TRUE
-    AND technology IN ('Solar', 'Wind', 'Gas')
+    AND technology IN ('Solar','Wind','Gas')
 )
-
 SELECT
-  t.calendar_month_end,
-  t.technology,
-  t.operating_year_num,
-  t.operating_month_num,
-
-  -- Degradation factor for this operating year
-  -- Year 1 = 1.0, Year 2 = 1 - rate, Year N = 1 - rate × (N-1)
-  GREATEST(
-    0.0,
-    1.0 - (g.annual_degradation_rate * (t.operating_year_num - 1))
-  )                                                 AS degradation_factor,
-
-  -- Y1 monthly generation (pre-computed in silver)
-  g.y1_monthly_generation_mwh                       AS y1_monthly_generation_mwh,
-
-  -- Actual monthly generation after degradation
-  ROUND(
-    g.y1_monthly_generation_mwh
-    * GREATEST(0.0, 1.0 - (g.annual_degradation_rate * (t.operating_year_num - 1))),
-    2
-  )                                                 AS monthly_generation_mwh,
-
-  -- Source inputs for traceability
-  g.y1_generation_mwh,
-  g.annual_degradation_rate,
-  g.useful_life_years,
-
-  -- Audit
-  g.run_id                                          AS silver_run_id,
-  g.pushed_at                                       AS silver_pushed_at
-
-FROM timeline t
-JOIN gen g
-  ON  g.technology   = t.technology
-  AND g.month_number = t.calendar_month_num
-
-ORDER BY t.technology, t.calendar_month_end;
-
-
--- =============================================================================
--- VALIDATION QUERIES
--- =============================================================================
-
--- 1. Row counts and degradation range per tech
-SELECT
-  technology,
-  COUNT(*)                                          AS total_months,
-  MIN(calendar_month_end)                           AS first_month,
-  MAX(calendar_month_end)                           AS last_month,
-  ROUND(MIN(degradation_factor), 6)                 AS min_deg_factor,
-  ROUND(MAX(degradation_factor), 6)                 AS max_deg_factor
-FROM `sandbox-lakehouse.fct_finance.generation_monthly`
-GROUP BY technology
-ORDER BY technology;
--- Expected:
---   Gas:   241 months, deg=1.0 throughout (0% degradation)
---   Solar: 421 months, max_deg=1.0 (yr1), min_deg≈0.9849 (yr35)
---   Wind:  361 months, deg=1.0 throughout (0% degradation)
-
--- 2. Solar Year 1 sum vs Y1 input
-SELECT
-  technology,
-  operating_year_num,
-  ROUND(SUM(monthly_generation_mwh), 0)             AS annual_total_mwh,
-  MAX(y1_generation_mwh)                            AS y1_input_mwh,
-  ROUND(SUM(monthly_generation_mwh)
-        / MAX(y1_generation_mwh) * 100, 2)          AS pct_of_y1
-FROM `sandbox-lakehouse.fct_finance.generation_monthly`
-WHERE technology = 'Solar' AND operating_year_num = 1
-GROUP BY technology, operating_year_num;
--- Expected: annual_total close to 1,840,153 MWh, pct_of_y1 ≈ 100%
-
--- 3. Solar Year 35 degradation check
-SELECT
-  technology,
-  operating_year_num,
-  ROUND(SUM(monthly_generation_mwh), 0)             AS annual_total_mwh,
-  MAX(degradation_factor)                           AS deg_factor
-FROM `sandbox-lakehouse.fct_finance.generation_monthly`
-WHERE technology = 'Solar' AND operating_year_num = 35
-GROUP BY technology, operating_year_num;
--- Expected: deg_factor = 1 - (0.01556/35 × 34) ≈ 0.9849
-
--- 4. Lifetime generation totals — LCOE denominators
-SELECT
-  technology,
-  ROUND(SUM(monthly_generation_mwh), 0)             AS lifetime_generation_mwh,
-  COUNT(DISTINCT operating_year_num)                AS operating_years
-FROM `sandbox-lakehouse.fct_finance.generation_monthly`
-GROUP BY technology
-ORDER BY technology;
+  o.calendar_month_end,
+  o.technology,
+  o.operating_year_num,
+  o.operating_month_num,
+  POWER(1 - COALESCE(s.annual_degradation_rate, 0), o.operating_year_num - 1)   AS degradation_factor,
+  s.y1_generation_mwh / 12.0                                                     AS y1_monthly_generation_mwh,
+  (s.y1_generation_mwh / 12.0)
+    * POWER(1 - COALESCE(s.annual_degradation_rate, 0), o.operating_year_num - 1) AS monthly_generation_mwh,
+  s.y1_generation_mwh,
+  s.annual_degradation_rate,
+  s.useful_life_years,
+  s.silver_run_id,
+  s.silver_pushed_at,
+  c.run_id,
+  c.pushed_at,
+  'Monthly_Haul_04_2026' AS run_label,
+  CURRENT_TIMESTAMP() AS created_at
+FROM ops o
+LEFT JOIN silver s ON s.technology = o.technology
+CROSS JOIN canonical c;

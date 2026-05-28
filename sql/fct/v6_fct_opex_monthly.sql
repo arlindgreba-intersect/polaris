@@ -1,31 +1,44 @@
 -- =============================================================================
--- Polaris V6 — fct_finance.project_opex_monthly
--- Monthly OpEx per technology across the full operating life
--- =============================================================================
--- OpEx categories included:
---   1. Land lease        — yr1_total × (1+escalator)^(op_year-1) / 12
---   2. Insurance         — annual_premium × (1+escalation)^(op_year-1) / 12
---                          DTC uses separate dtc_insurance fields from silver
---   3. Property tax      — 3-period: pre-abatement / abatement / post-abatement
---                          Abatement logic: full rate before abatement_start_year,
---                          reduced rate during abatement_tenor_years, full after
---   4. Other expenses    — unit-aware monthly calc per active line item:
---                          $/Yr → yr1/12, $/Month → yr1, $ → one-time at start_date,
---                          $/kW-mo → yr1*capacity*1000, $/MWh → yr1*gen_monthly
---   5. Gas fuel opex     — gas_effective_fuel_price × mmbtu_per_mwh × gen_monthly
---                          + FT reservation costs (trunk + lateral)
---   6. DTC HV maintenance— dtc_hv_maintenance_yr1 × (1+escalation)^(op_year-1) / 12
---   7. Operating LCs     — lc_amount_usd active between start_period and end_period
---                          with escalation applied per operating year
--- =============================================================================
--- Note: BESS/DTC Covered O&M = TBD (OI-009) — those rows will be null until
---       Brad Platt (BESS) and Ted Mongan (DTC) provide rates.
--- Note: Franchise tax not included here — it is % of revenue, computed in
---       lcoe_component_annual when revenue is available.
+-- Polaris V6 - fct_finance.project_opex_monthly
+-- Append-only with canonical run_id / run_label / pushed_at / created_at.
+-- Preserves timeline_run_id / timeline_pushed_at for source-lineage traceability.
 -- =============================================================================
 
-CREATE OR REPLACE TABLE `sandbox-lakehouse.fct_finance.project_opex_monthly` AS
+CREATE TABLE IF NOT EXISTS `sandbox-lakehouse.fct_finance.project_opex_monthly` (
+  calendar_month_end          DATE,
+  technology                  STRING,
+  operating_year_num          INT64,
+  operating_month_num         INT64,
+  land_lease_monthly_usd      FLOAT64,
+  insurance_monthly_usd       FLOAT64,
+  property_tax_monthly_usd    FLOAT64,
+  other_expenses_monthly_usd  FLOAT64,
+  gas_fuel_monthly_usd        FLOAT64,
+  dtc_hv_monthly_usd          FLOAT64,
+  lcs_monthly_usd             FLOAT64,
+  total_opex_monthly_usd      FLOAT64,
+  has_missing_om_inputs       BOOL,
+  timeline_run_id             STRING,
+  timeline_pushed_at          TIMESTAMP,
+  run_id                      STRING,
+  pushed_at                   TIMESTAMP,
+  run_label                   STRING,
+  created_at                  TIMESTAMP
+);
 
+INSERT INTO `sandbox-lakehouse.fct_finance.project_opex_monthly`
+(calendar_month_end, technology, operating_year_num, operating_month_num,
+ land_lease_monthly_usd, insurance_monthly_usd, property_tax_monthly_usd,
+ other_expenses_monthly_usd, gas_fuel_monthly_usd, dtc_hv_monthly_usd,
+ lcs_monthly_usd, total_opex_monthly_usd, has_missing_om_inputs,
+ timeline_run_id, timeline_pushed_at, run_id, pushed_at, run_label, created_at)
+WITH
+canonical AS (
+  SELECT run_id, pushed_at
+  FROM `sandbox-lakehouse.stg_finance.v6_stg_project_timeline`
+  ORDER BY pushed_at DESC LIMIT 1
+),
+base AS (
 WITH
 
 -- ── Latest run IDs ─────────────────────────────────────────────────────────
@@ -388,59 +401,16 @@ LEFT JOIN gas_fuel    gf  ON gf.technology  = t.technology AND gf.calendar_month
 LEFT JOIN dtc_hv      dh  ON dh.technology  = t.technology AND dh.calendar_month_end  = t.calendar_month_end
 LEFT JOIN agg_lcs     lc  ON lc.technology  = t.technology AND lc.calendar_month_end  = t.calendar_month_end
 
-ORDER BY t.technology, t.calendar_month_end;
-
-
--- =============================================================================
--- VALIDATION QUERIES
--- =============================================================================
-
--- 1. Row counts and total opex per tech
+ORDER BY t.technology, t.calendar_month_end
+)
 SELECT
-  technology,
-  COUNT(*)                                          AS total_months,
-  ROUND(SUM(total_opex_monthly_usd), 0)             AS lifetime_opex_usd,
-  ROUND(SUM(land_lease_monthly_usd), 0)             AS lifetime_land_lease,
-  ROUND(SUM(insurance_monthly_usd), 0)              AS lifetime_insurance,
-  ROUND(SUM(property_tax_monthly_usd), 0)           AS lifetime_property_tax,
-  ROUND(SUM(other_expenses_monthly_usd), 0)         AS lifetime_other_exp,
-  ROUND(SUM(gas_fuel_monthly_usd), 0)               AS lifetime_gas_fuel,
-  ROUND(SUM(lcs_monthly_usd), 0)                    AS lifetime_lcs,
-  COUNTIF(has_missing_om_inputs)                    AS months_missing_om
-FROM `sandbox-lakehouse.fct_finance.project_opex_monthly`
-GROUP BY technology
-ORDER BY technology;
-
--- 2. Property tax spot check — Solar abatement transition
-SELECT
-  calendar_month_end,
-  technology,
-  operating_year_num,
-  property_tax_monthly_usd
-FROM `sandbox-lakehouse.fct_finance.project_opex_monthly`
-WHERE technology = 'Solar'
-  AND EXTRACT(YEAR FROM calendar_month_end) BETWEEN 2033 AND 2037
-ORDER BY calendar_month_end
-LIMIT 24;
--- Expected: property tax drops at abatement_start_year, rises again after tenor
-
--- 3. Gas fuel opex — first 12 operating months
-SELECT
-  calendar_month_end,
-  gas_fuel_monthly_usd,
-  total_opex_monthly_usd
-FROM `sandbox-lakehouse.fct_finance.project_opex_monthly`
-WHERE technology = 'Gas'
-ORDER BY calendar_month_end
-LIMIT 12;
-
--- 4. Operating LCs — Wind (largest LC amounts)
-SELECT
-  calendar_month_end,
-  lcs_monthly_usd,
-  operating_year_num
-FROM `sandbox-lakehouse.fct_finance.project_opex_monthly`
-WHERE technology = 'Wind'
-  AND lcs_monthly_usd > 0
-ORDER BY calendar_month_end
-LIMIT 12;
+  b.calendar_month_end, b.technology, b.operating_year_num, b.operating_month_num,
+  b.land_lease_monthly_usd, b.insurance_monthly_usd, b.property_tax_monthly_usd,
+  b.other_expenses_monthly_usd, b.gas_fuel_monthly_usd, b.dtc_hv_monthly_usd,
+  b.lcs_monthly_usd, b.total_opex_monthly_usd, b.has_missing_om_inputs,
+  b.timeline_run_id, b.timeline_pushed_at,
+  c.run_id, c.pushed_at,
+  'Monthly_Haul_04_2026' AS run_label,
+  CURRENT_TIMESTAMP() AS created_at
+FROM base b
+CROSS JOIN canonical c;

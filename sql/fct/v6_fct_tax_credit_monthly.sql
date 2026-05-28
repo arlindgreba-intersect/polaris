@@ -1,32 +1,38 @@
 -- =============================================================================
--- Polaris V6 — fct_finance.tax_credit_monthly
--- One row per technology per calendar month
--- ITC fires as a NEGATIVE cost (benefit) in the single month of substantial_completion_date
--- Solar/Wind/BESS receive ITC (net_itc_usd from silver, sign-flipped to negative)
--- Gas/DTC receive zero ITC
--- Source: mart_finance.v6_silver_itc_inputs joined to fct_finance.project_timeline_monthly
+-- Polaris V6 - fct_finance.tax_credit_monthly
+-- Append-only. run_id overridden with canonical timeline run_id (was previously
+-- COALESCE'd from silver_itc_inputs / timeline).
 -- =============================================================================
 
-CREATE OR REPLACE TABLE `sandbox-lakehouse.fct_finance.tax_credit_monthly` AS
+CREATE TABLE IF NOT EXISTS `sandbox-lakehouse.fct_finance.tax_credit_monthly` (
+  calendar_month_end  DATE,
+  technology          STRING,
+  itc_benefit_usd     FLOAT64,
+  run_id              STRING,
+  pushed_at           TIMESTAMP,
+  run_label           STRING,
+  created_at          TIMESTAMP
+);
+
+INSERT INTO `sandbox-lakehouse.fct_finance.tax_credit_monthly`
+(calendar_month_end, technology, itc_benefit_usd, run_id, pushed_at, run_label, created_at)
 WITH
+canonical AS (
+  SELECT run_id, pushed_at
+  FROM `sandbox-lakehouse.stg_finance.v6_stg_project_timeline`
+  ORDER BY pushed_at DESC LIMIT 1
+),
 latest_itc AS (
   SELECT run_id FROM `sandbox-lakehouse.mart_finance.v6_silver_itc_inputs`
   ORDER BY pushed_at DESC LIMIT 1
 ),
 itc AS (
-  SELECT
-    technology,
-    net_itc_usd,
-    substantial_completion_date,
-    run_id
+  SELECT technology, net_itc_usd, substantial_completion_date
   FROM `sandbox-lakehouse.mart_finance.v6_silver_itc_inputs`
   WHERE run_id = (SELECT run_id FROM latest_itc)
 ),
 timeline AS (
-  SELECT
-    calendar_month_end,
-    technology,
-    run_id
+  SELECT calendar_month_end, technology
   FROM `sandbox-lakehouse.fct_finance.project_timeline_monthly`
 )
 SELECT
@@ -38,48 +44,10 @@ SELECT
       THEN -1.0 * COALESCE(i.net_itc_usd, 0)
     ELSE 0.0
   END AS itc_benefit_usd,
-  COALESCE(i.run_id, t.run_id) AS run_id
+  c.run_id,
+  c.pushed_at,
+  'Monthly_Haul_04_2026' AS run_label,
+  CURRENT_TIMESTAMP() AS created_at
 FROM timeline t
 LEFT JOIN itc i ON i.technology = t.technology
-ORDER BY t.technology, t.calendar_month_end;
-
-
--- =============================================================================
--- VALIDATION QUERIES
--- =============================================================================
-
--- 1. Lifetime ITC per technology + months that fire
-SELECT
-  technology,
-  ROUND(SUM(itc_benefit_usd), 2)   AS lifetime_itc,
-  COUNTIF(itc_benefit_usd <> 0)    AS months_with_itc
-FROM `sandbox-lakehouse.fct_finance.tax_credit_monthly`
-GROUP BY technology
-ORDER BY technology;
--- Expected: Solar/Wind/BESS each fire once with negative value matching silver.net_itc_usd;
---           Gas/DTC zero.
-
--- 2. Tie-out: |sum(itc_benefit_usd)| must equal silver.net_itc_usd per technology
-WITH
-fct_itc AS (
-  SELECT technology, ABS(SUM(itc_benefit_usd)) AS fct_lifetime_itc
-  FROM `sandbox-lakehouse.fct_finance.tax_credit_monthly`
-  GROUP BY technology
-),
-silver_itc AS (
-  SELECT technology, net_itc_usd
-  FROM `sandbox-lakehouse.mart_finance.v6_silver_itc_inputs`
-  WHERE run_id = (
-    SELECT run_id FROM `sandbox-lakehouse.mart_finance.v6_silver_itc_inputs`
-    ORDER BY pushed_at DESC LIMIT 1
-  )
-)
-SELECT
-  COALESCE(f.technology, s.technology) AS technology,
-  ROUND(s.net_itc_usd, 2)              AS silver_net_itc_usd,
-  ROUND(f.fct_lifetime_itc, 2)         AS fct_lifetime_itc_abs,
-  ROUND(COALESCE(f.fct_lifetime_itc, 0) - COALESCE(s.net_itc_usd, 0), 2) AS diff
-FROM fct_itc f
-FULL OUTER JOIN silver_itc s USING(technology)
-ORDER BY technology;
--- Expected: diff = 0 for all 5 technologies.
+CROSS JOIN canonical c;

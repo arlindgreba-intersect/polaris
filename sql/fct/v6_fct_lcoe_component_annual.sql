@@ -1,27 +1,39 @@
 -- =============================================================================
--- Polaris V6 — fct_finance.lcoe_component_annual
--- One row per technology — the core LCOE calculation
--- Formula (undiscounted, no TVM per V6 User Guide):
---   LCOE = (CapEx + OpEx - ITC - Depreciation Tax Shield - Revenue) / Generation
--- Denominators:
---   Solar / Wind:           lifetime MWh from generation_monthly                 ($/MWh)
---   BESS / Gas / DTC:       installed_capacity_mw * 1000 * useful_life_years*12  ($/kW-mo)
--- Special case:
---   Gas LCOE excludes fuel opex (per User Guide — fuel sits in Facility LCOE only)
--- Sources:
---   CapEx:       SUM(monthly_capex_usd) from project_capex_monthly
---   OpEx:        SUM(total_opex_monthly_usd) from project_opex_monthly
---                (Gas: SUM(total_opex_monthly_usd - gas_fuel_monthly_usd))
---   ITC:         ABS(SUM(itc_benefit_usd)) from tax_credit_monthly
---   Dep shield:  SUM(depreciation_tax_shield_monthly_usd) from depreciation_monthly
---   Revenue:     SUM(revenue_usd) from revenue_monthly (currently 0; OI-005 pending)
---   Generation:  SUM(monthly_generation_mwh) from generation_monthly
---   Capacity:    installed_capacity_mw from v6_silver_capex_components
---   Life:        useful_life_years from v6_silver_project_inputs
+-- Polaris V6 - fct_finance.lcoe_component_annual
+-- Append-only with canonical audit fields. Formula unchanged.
+-- Solar/Wind denom: lifetime MWh from generation_monthly  ($/MWh)
+-- Gas/BESS/DTC denom: installed_capacity_mw * 1000 * useful_life_years * 12  ($/kW-mo)
+-- Gas LCOE excludes fuel (fuel is in Facility LCOE only per User Guide).
 -- =============================================================================
 
-CREATE OR REPLACE TABLE `sandbox-lakehouse.fct_finance.lcoe_component_annual` AS
+CREATE TABLE IF NOT EXISTS `sandbox-lakehouse.fct_finance.lcoe_component_annual` (
+  technology                  STRING,
+  lcoe_numerator_usd          FLOAT64,
+  lcoe_denominator            FLOAT64,
+  lcoe_denominator_unit       STRING,
+  lcoe_usd_per_unit           FLOAT64,
+  total_capex_usd             FLOAT64,
+  total_opex_usd              FLOAT64,
+  total_itc_usd               FLOAT64,
+  total_dep_shield_usd        FLOAT64,
+  total_revenue_usd           FLOAT64,
+  lifetime_generation_mwh     FLOAT64,
+  run_id                      STRING,
+  pushed_at                   TIMESTAMP,
+  run_label                   STRING,
+  created_at                  TIMESTAMP
+);
+
+INSERT INTO `sandbox-lakehouse.fct_finance.lcoe_component_annual`
+(technology, lcoe_numerator_usd, lcoe_denominator, lcoe_denominator_unit, lcoe_usd_per_unit,
+ total_capex_usd, total_opex_usd, total_itc_usd, total_dep_shield_usd, total_revenue_usd,
+ lifetime_generation_mwh, run_id, pushed_at, run_label, created_at)
 WITH
+canonical AS (
+  SELECT run_id, pushed_at
+  FROM `sandbox-lakehouse.stg_finance.v6_stg_project_timeline`
+  ORDER BY pushed_at DESC LIMIT 1
+),
 latest_capex_comp AS (
   SELECT run_id FROM `sandbox-lakehouse.mart_finance.v6_silver_capex_components`
   ORDER BY pushed_at DESC LIMIT 1
@@ -90,58 +102,37 @@ calc AS (
     cap.installed_capacity_mw,
     lf.useful_life_years
   FROM techs t
-  LEFT JOIN capex    cx  ON cx.technology  = t.technology
-  LEFT JOIN opex     ox  ON ox.technology  = t.technology
-  LEFT JOIN itc      ic  ON ic.technology  = t.technology
-  LEFT JOIN dep      dp  ON dp.technology  = t.technology
-  LEFT JOIN rev      rv  ON rv.technology  = t.technology
-  LEFT JOIN gen      g   ON g.technology   = t.technology
+  LEFT JOIN capex cx ON cx.technology = t.technology
+  LEFT JOIN opex ox ON ox.technology = t.technology
+  LEFT JOIN itc ic ON ic.technology = t.technology
+  LEFT JOIN dep dp ON dp.technology = t.technology
+  LEFT JOIN rev rv ON rv.technology = t.technology
+  LEFT JOIN gen g ON g.technology = t.technology
   LEFT JOIN capacity cap ON cap.technology = t.technology
-  LEFT JOIN life     lf  ON lf.technology  = t.technology
+  LEFT JOIN life lf ON lf.technology = t.technology
 )
 SELECT
-  technology,
-  ROUND(total_capex_usd + total_opex_usd - total_itc_usd - total_dep_shield_usd - total_revenue_usd, 2) AS lcoe_numerator_usd,
+  ca.technology,
+  ROUND(ca.total_capex_usd + ca.total_opex_usd - ca.total_itc_usd - ca.total_dep_shield_usd - ca.total_revenue_usd, 2) AS lcoe_numerator_usd,
   ROUND(
-    CASE
-      WHEN technology IN ('Solar','Wind')        THEN lifetime_generation_mwh
-      WHEN technology IN ('BESS','Gas','DTC')    THEN installed_capacity_mw * 1000.0 * useful_life_years * 12.0
-    END, 2)                                                                AS lcoe_denominator,
-  CASE
-    WHEN technology IN ('Solar','Wind')        THEN 'MWh'
-    WHEN technology IN ('BESS','Gas','DTC')    THEN 'kW-mo'
-  END                                                                       AS lcoe_denominator_unit,
-  ROUND(
-    SAFE_DIVIDE(
-      total_capex_usd + total_opex_usd - total_itc_usd - total_dep_shield_usd - total_revenue_usd,
-      CASE
-        WHEN technology IN ('Solar','Wind')        THEN lifetime_generation_mwh
-        WHEN technology IN ('BESS','Gas','DTC')    THEN installed_capacity_mw * 1000.0 * useful_life_years * 12.0
-      END
-    ), 4)                                                                  AS lcoe_usd_per_unit,
-  ROUND(total_capex_usd, 2)                  AS total_capex_usd,
-  ROUND(total_opex_usd, 2)                   AS total_opex_usd,
-  ROUND(total_itc_usd, 2)                    AS total_itc_usd,
-  ROUND(total_dep_shield_usd, 2)             AS total_dep_shield_usd,
-  ROUND(total_revenue_usd, 2)                AS total_revenue_usd,
-  ROUND(lifetime_generation_mwh, 2)          AS lifetime_generation_mwh
-FROM calc
-ORDER BY technology;
-
-
--- =============================================================================
--- VALIDATION QUERIES
--- =============================================================================
-
--- 1. Full table inspection
-SELECT * FROM `sandbox-lakehouse.fct_finance.lcoe_component_annual` ORDER BY technology;
-
--- 2. Sanity check vs Excel target ranges (variances acceptable until OI-009 closes)
---   Solar:  ~26.9 $/MWh
---   Wind:   ~30.6 $/MWh
---   Gas:    ~12.0 $/kW-mo
---   BESS:   ~2.8  $/kW-mo
---   DTC:    ~9.5  $/kW-mo
-SELECT technology, lcoe_denominator_unit AS unit, lcoe_usd_per_unit AS lcoe
-FROM `sandbox-lakehouse.fct_finance.lcoe_component_annual`
-ORDER BY technology;
+    CASE WHEN ca.technology IN ('Solar','Wind') THEN ca.lifetime_generation_mwh
+         WHEN ca.technology IN ('BESS','Gas','DTC') THEN ca.installed_capacity_mw * 1000.0 * ca.useful_life_years * 12.0
+    END, 2) AS lcoe_denominator,
+  CASE WHEN ca.technology IN ('Solar','Wind') THEN 'MWh' ELSE 'kW-mo' END AS lcoe_denominator_unit,
+  ROUND(SAFE_DIVIDE(
+    ca.total_capex_usd + ca.total_opex_usd - ca.total_itc_usd - ca.total_dep_shield_usd - ca.total_revenue_usd,
+    CASE WHEN ca.technology IN ('Solar','Wind') THEN ca.lifetime_generation_mwh
+         WHEN ca.technology IN ('BESS','Gas','DTC') THEN ca.installed_capacity_mw * 1000.0 * ca.useful_life_years * 12.0 END
+  ), 4) AS lcoe_usd_per_unit,
+  ROUND(ca.total_capex_usd, 2)        AS total_capex_usd,
+  ROUND(ca.total_opex_usd, 2)         AS total_opex_usd,
+  ROUND(ca.total_itc_usd, 2)          AS total_itc_usd,
+  ROUND(ca.total_dep_shield_usd, 2)   AS total_dep_shield_usd,
+  ROUND(ca.total_revenue_usd, 2)      AS total_revenue_usd,
+  ROUND(ca.lifetime_generation_mwh, 2) AS lifetime_generation_mwh,
+  c.run_id,
+  c.pushed_at,
+  'Monthly_Haul_04_2026' AS run_label,
+  CURRENT_TIMESTAMP() AS created_at
+FROM calc ca
+CROSS JOIN canonical c;

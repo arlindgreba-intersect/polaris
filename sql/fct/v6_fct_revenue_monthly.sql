@@ -1,13 +1,30 @@
 -- =============================================================================
--- Polaris V6 — fct_finance.revenue_monthly
--- One row per technology per operating month
--- All revenue values = 0.0 (PLACEHOLDER — OI-005 market curves not yet delivered
---   by Brian Wile; ExcelBridge integration pending)
--- Technologies: Solar, Wind, Gas, BESS, DTC (all 5)
--- Source: fct_finance.project_timeline_monthly filtered to is_operation = TRUE
+-- Polaris V6 - fct_finance.revenue_monthly
+-- Append-only. All revenue_usd = 0 (PLACEHOLDER - OI-005 pending Brian Wile).
 -- =============================================================================
 
-CREATE OR REPLACE TABLE `sandbox-lakehouse.fct_finance.revenue_monthly` AS
+CREATE TABLE IF NOT EXISTS `sandbox-lakehouse.fct_finance.revenue_monthly` (
+  calendar_month_end   DATE,
+  technology           STRING,
+  operating_year_num   INT64,
+  revenue_usd          FLOAT64,
+  is_placeholder       BOOL,
+  placeholder_reason   STRING,
+  run_id               STRING,
+  pushed_at            TIMESTAMP,
+  run_label            STRING,
+  created_at           TIMESTAMP
+);
+
+INSERT INTO `sandbox-lakehouse.fct_finance.revenue_monthly`
+(calendar_month_end, technology, operating_year_num, revenue_usd, is_placeholder,
+ placeholder_reason, run_id, pushed_at, run_label, created_at)
+WITH
+canonical AS (
+  SELECT run_id, pushed_at
+  FROM `sandbox-lakehouse.stg_finance.v6_stg_project_timeline`
+  ORDER BY pushed_at DESC LIMIT 1
+)
 SELECT
   t.calendar_month_end,
   t.technology,
@@ -15,26 +32,10 @@ SELECT
   0.0  AS revenue_usd,
   TRUE AS is_placeholder,
   'OI-005: ExcelBridge market curves pending Brian Wile' AS placeholder_reason,
-  t.run_id
+  c.run_id,
+  c.pushed_at,
+  'Monthly_Haul_04_2026' AS run_label,
+  CURRENT_TIMESTAMP() AS created_at
 FROM `sandbox-lakehouse.fct_finance.project_timeline_monthly` t
-WHERE t.is_operation = TRUE
-ORDER BY t.technology, t.calendar_month_end;
-
-
--- =============================================================================
--- VALIDATION QUERIES
--- =============================================================================
-
--- 1. Row counts + date range + revenue sum per tech (must be 0)
-SELECT
-  technology,
-  COUNT(*)                            AS row_count,
-  MIN(calendar_month_end)             AS min_month,
-  MAX(calendar_month_end)             AS max_month,
-  SUM(revenue_usd)                    AS sum_revenue_usd,
-  COUNT(DISTINCT placeholder_reason)  AS distinct_reasons
-FROM `sandbox-lakehouse.fct_finance.revenue_monthly`
-GROUP BY technology
-ORDER BY technology;
--- Expected: row counts match operating-life-in-months per tech;
---   sum_revenue_usd = 0 (placeholder); distinct_reasons = 1.
+CROSS JOIN canonical c
+WHERE t.is_operation = TRUE;

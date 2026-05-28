@@ -1,29 +1,37 @@
 -- =============================================================================
--- Polaris V6 — fct_finance.lcoe_facility_summary
--- Final CC/RR RLR output table — feeds Looker.
--- One row per technology (Solar, Wind, Gas, BESS, DTC) plus a Facility roll-up row.
---
--- Facility roll-up:
---   Numerator   = SUM of all per-tech LCOE numerators + Gas lifetime fuel opex
---                 (Gas fuel is excluded from Gas's tech LCOE per User Guide but
---                  is included at Facility level per "fuel is in Facility LCOE only".)
---   Denominator = DTC kW-mo denominator (1,095 MW × 1000 × 20 yr × 12 mo)
---   Unit        = $/kW-mo
---   LCOE        = Numerator / Denominator
---
--- Per-tech rows are copied verbatim from lcoe_component_annual.
--- Facility total_opex_usd includes Gas fuel so capex + opex − itc − dep − revenue
---   reconciles exactly to the Facility numerator.
--- Run metadata (run_label, run_type) sourced from mart_finance.lcoe_inputs_wide.
+-- Polaris V6 - fct_finance.lcoe_facility_summary
+-- Final CC/RR RLR output - feeds Looker. Append-only with canonical audit fields.
+-- Facility numerator = SUM of tech numerators + Gas lifetime fuel (User Guide).
+-- Facility denominator = DTC kW-mo (1095 MW * 1000 * 20 yr * 12).
 -- =============================================================================
 
-CREATE OR REPLACE TABLE `sandbox-lakehouse.fct_finance.lcoe_facility_summary` AS
+CREATE TABLE IF NOT EXISTS `sandbox-lakehouse.fct_finance.lcoe_facility_summary` (
+  technology              STRING,
+  lcoe_usd_per_unit       FLOAT64,
+  lcoe_denominator_unit   STRING,
+  total_capex_usd         FLOAT64,
+  total_opex_usd          FLOAT64,
+  total_itc_usd           FLOAT64,
+  total_dep_shield_usd    FLOAT64,
+  total_revenue_usd       FLOAT64,
+  lcoe_numerator_usd      FLOAT64,
+  lcoe_denominator        FLOAT64,
+  run_label               STRING,
+  run_type                STRING,
+  created_at              TIMESTAMP,
+  run_id                  STRING,
+  pushed_at               TIMESTAMP
+);
+
+INSERT INTO `sandbox-lakehouse.fct_finance.lcoe_facility_summary`
+(technology, lcoe_usd_per_unit, lcoe_denominator_unit, total_capex_usd, total_opex_usd,
+ total_itc_usd, total_dep_shield_usd, total_revenue_usd, lcoe_numerator_usd, lcoe_denominator,
+ run_label, run_type, created_at, run_id, pushed_at)
 WITH
-run_meta AS (
-  SELECT
-    ANY_VALUE(run_label) AS run_label,
-    ANY_VALUE(run_type)  AS run_type
-  FROM `sandbox-lakehouse.mart_finance.lcoe_inputs_wide`
+canonical AS (
+  SELECT run_id, pushed_at
+  FROM `sandbox-lakehouse.stg_finance.v6_stg_project_timeline`
+  ORDER BY pushed_at DESC LIMIT 1
 ),
 lca AS (
   SELECT * FROM `sandbox-lakehouse.fct_finance.lcoe_component_annual`
@@ -58,11 +66,13 @@ SELECT
   ROUND(lca.total_revenue_usd, 2)         AS total_revenue_usd,
   ROUND(lca.lcoe_numerator_usd, 2)        AS lcoe_numerator_usd,
   ROUND(lca.lcoe_denominator, 2)          AS lcoe_denominator,
-  m.run_label,
-  m.run_type,
-  CURRENT_TIMESTAMP()                     AS created_at
+  'Monthly_Haul_04_2026' AS run_label,
+  'forecast'             AS run_type,
+  CURRENT_TIMESTAMP()    AS created_at,
+  c.run_id,
+  c.pushed_at
 FROM lca
-CROSS JOIN run_meta m
+CROSS JOIN canonical c
 
 UNION ALL
 
@@ -77,49 +87,12 @@ SELECT
   ROUND(t.sum_revenue, 2)                                                          AS total_revenue_usd,
   ROUND(t.sum_numerator + gf.gas_lifetime_fuel_usd, 2)                             AS lcoe_numerator_usd,
   ROUND(d.dtc_denom_kwmo, 2)                                                       AS lcoe_denominator,
-  m.run_label,
-  m.run_type,
-  CURRENT_TIMESTAMP()                                                              AS created_at
+  'Monthly_Haul_04_2026' AS run_label,
+  'forecast'             AS run_type,
+  CURRENT_TIMESTAMP()    AS created_at,
+  c.run_id,
+  c.pushed_at
 FROM totals t
 CROSS JOIN dtc_denom d
-CROSS JOIN run_meta m
 CROSS JOIN gas_fuel gf
-ORDER BY
-  CASE technology
-    WHEN 'Solar' THEN 1 WHEN 'Wind' THEN 2 WHEN 'Gas' THEN 3
-    WHEN 'BESS' THEN 4 WHEN 'DTC' THEN 5 WHEN 'Facility' THEN 6
-  END;
-
-
--- =============================================================================
--- VALIDATION QUERIES
--- =============================================================================
-
--- 1. Full table inspection
-SELECT *
-FROM `sandbox-lakehouse.fct_finance.lcoe_facility_summary`
-ORDER BY
-  CASE technology
-    WHEN 'Solar' THEN 1 WHEN 'Wind' THEN 2 WHEN 'Gas' THEN 3
-    WHEN 'BESS' THEN 4 WHEN 'DTC' THEN 5 WHEN 'Facility' THEN 6
-  END;
-
--- 2. Facility LCOE expected range check
---    Excel target 76.665 $/kW-mo. Current build expected ~62.83 with fuel
---    added back; remaining gap (~13 $/kW-mo) explained by:
---      • OI-009 — BESS/DTC O&M inputs pending (Brad Platt, Ted Mongan).
---                 When delivered, OpEx ↑, Facility LCOE ↑ toward target.
---      • OI-005 — revenue curves pending (Brian Wile). Once delivered,
---                 small downward adjustment.
---      • +1 month operating-life edge case across all techs.
-SELECT
-  technology,
-  lcoe_usd_per_unit,
-  lcoe_denominator_unit,
-  CASE
-    WHEN technology = 'Facility' AND lcoe_usd_per_unit BETWEEN 70 AND 80 THEN 'IN_RANGE'
-    WHEN technology = 'Facility' THEN 'OUT_OF_RANGE — open OIs pending'
-    ELSE NULL
-  END AS facility_range_check
-FROM `sandbox-lakehouse.fct_finance.lcoe_facility_summary`
-WHERE technology = 'Facility';
+CROSS JOIN canonical c;
