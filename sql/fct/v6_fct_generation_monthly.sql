@@ -20,14 +20,15 @@ CREATE TABLE IF NOT EXISTS `sandbox-lakehouse.fct_finance.generation_monthly` (
   run_id                       STRING,
   pushed_at                    TIMESTAMP,
   run_label                    STRING,
-  created_at                   TIMESTAMP
+  created_at                   TIMESTAMP,
+  run_type                     STRING
 );
 
 INSERT INTO `sandbox-lakehouse.fct_finance.generation_monthly`
 (calendar_month_end, technology, operating_year_num, operating_month_num,
  degradation_factor, y1_monthly_generation_mwh, monthly_generation_mwh,
  y1_generation_mwh, annual_degradation_rate, useful_life_years,
- silver_run_id, silver_pushed_at, run_id, pushed_at, run_label, created_at)
+ silver_run_id, silver_pushed_at, run_id, pushed_at, run_label, created_at, run_type)
 WITH
 canonical AS (
   SELECT run_id, pushed_at
@@ -69,7 +70,8 @@ SELECT
   c.run_id,
   c.pushed_at,
   'Monthly_Haul_04_2026' AS run_label,
-  CURRENT_TIMESTAMP() AS created_at
+  CURRENT_TIMESTAMP() AS created_at,
+  'current_forecast' AS run_type
 FROM ops o
 LEFT JOIN silver s ON s.technology = o.technology
 CROSS JOIN canonical c;

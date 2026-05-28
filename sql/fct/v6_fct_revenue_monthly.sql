@@ -13,12 +13,13 @@ CREATE TABLE IF NOT EXISTS `sandbox-lakehouse.fct_finance.revenue_monthly` (
   run_id               STRING,
   pushed_at            TIMESTAMP,
   run_label            STRING,
-  created_at           TIMESTAMP
+  created_at           TIMESTAMP,
+  run_type                     STRING
 );
 
 INSERT INTO `sandbox-lakehouse.fct_finance.revenue_monthly`
 (calendar_month_end, technology, operating_year_num, revenue_usd, is_placeholder,
- placeholder_reason, run_id, pushed_at, run_label, created_at)
+ placeholder_reason, run_id, pushed_at, run_label, created_at, run_type)
 WITH
 canonical AS (
   SELECT run_id, pushed_at
@@ -35,7 +36,8 @@ SELECT
   c.run_id,
   c.pushed_at,
   'Monthly_Haul_04_2026' AS run_label,
-  CURRENT_TIMESTAMP() AS created_at
+  CURRENT_TIMESTAMP() AS created_at,
+  'current_forecast' AS run_type
 FROM `sandbox-lakehouse.fct_finance.project_timeline_monthly` t
 CROSS JOIN canonical c
 WHERE t.is_operation = TRUE;

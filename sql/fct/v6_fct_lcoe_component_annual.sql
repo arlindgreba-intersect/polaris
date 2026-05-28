@@ -21,13 +21,14 @@ CREATE TABLE IF NOT EXISTS `sandbox-lakehouse.fct_finance.lcoe_component_annual`
   run_id                      STRING,
   pushed_at                   TIMESTAMP,
   run_label                   STRING,
-  created_at                  TIMESTAMP
+  created_at                  TIMESTAMP,
+  run_type                     STRING
 );
 
 INSERT INTO `sandbox-lakehouse.fct_finance.lcoe_component_annual`
 (technology, lcoe_numerator_usd, lcoe_denominator, lcoe_denominator_unit, lcoe_usd_per_unit,
  total_capex_usd, total_opex_usd, total_itc_usd, total_dep_shield_usd, total_revenue_usd,
- lifetime_generation_mwh, run_id, pushed_at, run_label, created_at)
+ lifetime_generation_mwh, run_id, pushed_at, run_label, created_at, run_type)
 WITH
 canonical AS (
   SELECT run_id, pushed_at
@@ -133,6 +134,7 @@ SELECT
   c.run_id,
   c.pushed_at,
   'Monthly_Haul_04_2026' AS run_label,
-  CURRENT_TIMESTAMP() AS created_at
+  CURRENT_TIMESTAMP() AS created_at,
+  'current_forecast' AS run_type
 FROM calc ca
 CROSS JOIN canonical c;

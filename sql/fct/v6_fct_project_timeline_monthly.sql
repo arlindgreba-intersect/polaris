@@ -27,7 +27,8 @@ CREATE TABLE IF NOT EXISTS `sandbox-lakehouse.fct_finance.project_timeline_month
   run_id                       STRING,
   pushed_at                    TIMESTAMP,
   run_label                    STRING,
-  created_at                   TIMESTAMP
+  created_at                   TIMESTAMP,
+  run_type                     STRING
 );
 
 INSERT INTO `sandbox-lakehouse.fct_finance.project_timeline_monthly`
@@ -35,7 +36,7 @@ INSERT INTO `sandbox-lakehouse.fct_finance.project_timeline_monthly`
  month_seq, technology, is_development, is_construction, is_operation,
  construction_month_num, operating_year_num, operating_month_num, total_operating_months,
  dev_start_date, construction_start_date, substantial_completion_date, end_of_useful_life_date,
- useful_life_years, run_id, pushed_at, run_label, created_at)
+ useful_life_years, run_id, pushed_at, run_label, created_at, run_type)
 WITH
 canonical AS (
   SELECT run_id, pushed_at
@@ -88,7 +89,8 @@ SELECT
   c.run_id,
   c.pushed_at,
   'Monthly_Haul_04_2026' AS run_label,
-  CURRENT_TIMESTAMP() AS created_at
+  CURRENT_TIMESTAMP() AS created_at,
+  'current_forecast' AS run_type
 FROM crossed cr
 CROSS JOIN canonical c
 WHERE cr.calendar_month_end >= cr.dev_start_date

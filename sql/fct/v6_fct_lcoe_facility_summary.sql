@@ -67,7 +67,7 @@ SELECT
   ROUND(lca.lcoe_numerator_usd, 2)        AS lcoe_numerator_usd,
   ROUND(lca.lcoe_denominator, 2)          AS lcoe_denominator,
   'Monthly_Haul_04_2026' AS run_label,
-  'forecast'             AS run_type,
+  'current_forecast' AS run_type,
   CURRENT_TIMESTAMP()    AS created_at,
   c.run_id,
   c.pushed_at
@@ -88,7 +88,7 @@ SELECT
   ROUND(t.sum_numerator + gf.gas_lifetime_fuel_usd, 2)                             AS lcoe_numerator_usd,
   ROUND(d.dtc_denom_kwmo, 2)                                                       AS lcoe_denominator,
   'Monthly_Haul_04_2026' AS run_label,
-  'forecast'             AS run_type,
+  'current_forecast' AS run_type,
   CURRENT_TIMESTAMP()    AS created_at,
   c.run_id,
   c.pushed_at

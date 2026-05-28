@@ -23,7 +23,8 @@ CREATE TABLE IF NOT EXISTS `sandbox-lakehouse.fct_finance.project_opex_monthly` 
   run_id                      STRING,
   pushed_at                   TIMESTAMP,
   run_label                   STRING,
-  created_at                  TIMESTAMP
+  created_at                  TIMESTAMP,
+  run_type                     STRING
 );
 
 INSERT INTO `sandbox-lakehouse.fct_finance.project_opex_monthly`
@@ -31,7 +32,7 @@ INSERT INTO `sandbox-lakehouse.fct_finance.project_opex_monthly`
  land_lease_monthly_usd, insurance_monthly_usd, property_tax_monthly_usd,
  other_expenses_monthly_usd, gas_fuel_monthly_usd, dtc_hv_monthly_usd,
  lcs_monthly_usd, total_opex_monthly_usd, has_missing_om_inputs,
- timeline_run_id, timeline_pushed_at, run_id, pushed_at, run_label, created_at)
+ timeline_run_id, timeline_pushed_at, run_id, pushed_at, run_label, created_at, run_type)
 WITH
 canonical AS (
   SELECT run_id, pushed_at
@@ -411,6 +412,7 @@ SELECT
   b.timeline_run_id, b.timeline_pushed_at,
   c.run_id, c.pushed_at,
   'Monthly_Haul_04_2026' AS run_label,
-  CURRENT_TIMESTAMP() AS created_at
+  CURRENT_TIMESTAMP() AS created_at,
+  'current_forecast' AS run_type
 FROM base b
 CROSS JOIN canonical c;
