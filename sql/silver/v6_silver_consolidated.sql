@@ -80,6 +80,8 @@ SELECT
   tl.snapshot_id,
   tl.model_name,
   tl.pushed_at,
+  tl.run_label,
+  tl.run_type,
   tl.technology,
 
   -- LCOE model controls (same for all techs — denormalized for easy joins)
@@ -150,6 +152,7 @@ SELECT
   cont.capex_contingency_usd,
   cont.opex_contingency_pct,
 
+  CURRENT_TIMESTAMP() AS created_at,
   CURRENT_TIMESTAMP() AS silver_created_at
 
 FROM tl
@@ -192,6 +195,8 @@ SELECT
   c.snapshot_id,
   c.model_name,
   c.pushed_at,
+  c.run_label,
+  c.run_type,
   c.technology,
   c.component,
   c.dollar_per_w,
@@ -213,6 +218,7 @@ SELECT
   COALESCE(c.total_capex_usd, 0) + COALESCE(ct.capex_contingency_usd, 0)
     AS total_capex_with_contingency_usd,
 
+  CURRENT_TIMESTAMP() AS created_at,
   CURRENT_TIMESTAMP() AS silver_created_at
 
 FROM capex c
@@ -283,6 +289,7 @@ dtc_opex AS (
 
 SELECT
   r.run_id, r.snapshot_id, r.model_name, r.pushed_at,
+  r.run_label, r.run_type,
   r.technology,
 
   -- Land lease
@@ -352,6 +359,7 @@ SELECT
   CASE WHEN r.technology = 'DTC' THEN d.dtc_insurance_yr1                ELSE NULL END AS dtc_insurance_yr1,
   CASE WHEN r.technology = 'DTC' THEN d.dtc_insurance_escalation         ELSE NULL END AS dtc_insurance_escalation,
 
+  CURRENT_TIMESTAMP() AS created_at,
   CURRENT_TIMESTAMP() AS silver_created_at
 
 FROM rates r
@@ -400,6 +408,7 @@ tl AS (
 
 SELECT
   s.run_id, s.snapshot_id, s.model_name, s.pushed_at,
+  s.run_label, s.run_type,
   s.technology,
   s.month_number,
   s.seasonality_factor,
@@ -438,6 +447,7 @@ SELECT
            THEN d.cumulative_degradation_at_ul / t.useful_life_years ELSE 0 END
     ) * 19), 2)                                               AS gen_yr20_mwh,
 
+  CURRENT_TIMESTAMP() AS created_at,
   CURRENT_TIMESTAMP() AS silver_created_at
 
 FROM seas s
@@ -478,6 +488,7 @@ tl AS (
 
 SELECT
   t.run_id, t.snapshot_id, t.model_name, t.pushed_at,
+  t.run_label, t.run_type,
   t.technology,
 
   -- ITC inputs
@@ -548,6 +559,7 @@ SELECT
   c.total_capex_usd,
   c.total_capex_with_contingency_usd,
 
+  CURRENT_TIMESTAMP() AS created_at,
   CURRENT_TIMESTAMP() AS silver_created_at
 
 FROM tax t
@@ -580,6 +592,7 @@ tl AS (
 
 SELECT
   l.run_id, l.snapshot_id, l.model_name, l.pushed_at,
+  l.run_label, l.run_type,
   l.technology,
   l.line_item_num,
   l.lc_label,
@@ -604,6 +617,7 @@ SELECT
   DATE_DIFF(l.start_period, tl.substantial_completion_date, MONTH)
     AS months_after_sc_start,
 
+  CURRENT_TIMESTAMP() AS created_at,
   CURRENT_TIMESTAMP() AS silver_created_at
 
 FROM lcs l

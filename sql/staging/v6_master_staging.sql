@@ -55,12 +55,14 @@ pivoted AS (
     MAX(CASE WHEN input_name = 'Technology Switch (1=On; 0=Off)'     AND technology = 'DTC'   THEN value_num END) AS dtc_tech_switch,
     MAX(pushed_at)   AS pushed_at,
     MAX(run_id)      AS run_id,
+    MAX(run_label)   AS run_label,
+    MAX(run_type)    AS run_type,
     MAX(snapshot_id) AS snapshot_id,
     MAX(model_name)  AS model_name
   FROM src
 )
 SELECT
-  run_id, snapshot_id, model_name, pushed_at,
+  run_id, snapshot_id, model_name, pushed_at, run_label, run_type,
   discount_rate,
   solar_tech_switch, wind_tech_switch, gas_tech_switch, bess_tech_switch, dtc_tech_switch,
   solar_itc_ptc_switch, wind_itc_ptc_switch, gas_itc_ptc_switch, bess_itc_ptc_switch,
@@ -83,7 +85,7 @@ WITH src AS (
   AND section = 'Dates'
 )
 SELECT
-  run_id, snapshot_id, model_name, pushed_at, technology,
+  run_id, snapshot_id, model_name, pushed_at, run_label, run_type, technology,
   MAX(CASE WHEN input_name = 'Development Start Date'           THEN DATE(value_date) END) AS dev_start_date,
   MAX(CASE WHEN input_name = 'Construction Start Date'          THEN DATE(value_date) END) AS construction_start_date,
   MAX(CASE WHEN input_name = 'Substantial Completion'           THEN DATE(value_date) END) AS substantial_completion_date,
@@ -94,7 +96,7 @@ SELECT
   CURRENT_TIMESTAMP() AS stg_created_at
 FROM src
 WHERE technology IN ('Solar','Wind','Gas','BESS','DTC')
-GROUP BY run_id, snapshot_id, model_name, pushed_at, technology;
+GROUP BY run_id, snapshot_id, model_name, pushed_at, run_label, run_type, technology;
 
 
 -- =============================================================================
@@ -112,7 +114,7 @@ WITH src AS (
   AND source_row BETWEEN 24 AND 31
 )
 SELECT
-  run_id, snapshot_id, model_name, pushed_at, technology,
+  run_id, snapshot_id, model_name, pushed_at, run_label, run_type, technology,
   MAX(CASE WHEN input_name = 'Installed Capacity'        THEN value_num END) AS installed_capacity_mw,
   MAX(CASE WHEN input_name = 'Capacity at POI'           THEN value_num END) AS capacity_at_poi_mw,
   MAX(CASE WHEN input_name = 'Number of Turbines'        THEN value_num END) AS turbine_count,
@@ -124,7 +126,7 @@ SELECT
   CURRENT_TIMESTAMP() AS stg_created_at
 FROM src
 WHERE technology IN ('Solar','Wind','Gas','BESS','DTC')
-GROUP BY run_id, snapshot_id, model_name, pushed_at, technology;
+GROUP BY run_id, snapshot_id, model_name, pushed_at, run_label, run_type, technology;
 
 
 -- =============================================================================
@@ -142,7 +144,7 @@ WITH src AS (
   AND value_num IS NOT NULL
 )
 SELECT
-  run_id, snapshot_id, model_name, pushed_at, technology,
+  run_id, snapshot_id, model_name, pushed_at, run_label, run_type, technology,
   CAST(input_name AS INT64) AS month_number,
   value_num                  AS seasonality_factor,
   CURRENT_TIMESTAMP()        AS stg_created_at
@@ -163,13 +165,13 @@ WITH src AS (
   AND input_name IN ('Cumulative Deg. at UL', 'First Year BESS Deg.')
 )
 SELECT
-  run_id, snapshot_id, model_name, pushed_at, technology,
+  run_id, snapshot_id, model_name, pushed_at, run_label, run_type, technology,
   MAX(CASE WHEN input_name = 'Cumulative Deg. at UL'  THEN value_num END) AS cumulative_degradation_at_ul,
   MAX(CASE WHEN input_name = 'First Year BESS Deg.'   THEN value_num END) AS first_year_bess_degradation,
   CURRENT_TIMESTAMP() AS stg_created_at
 FROM src
 WHERE technology IN ('Solar','Wind','Gas','BESS','DTC')
-GROUP BY run_id, snapshot_id, model_name, pushed_at, technology;
+GROUP BY run_id, snapshot_id, model_name, pushed_at, run_label, run_type, technology;
 
 
 -- =============================================================================
@@ -185,7 +187,7 @@ WITH src AS (
   AND section = 'Tax Attributes'
 )
 SELECT
-  run_id, snapshot_id, model_name, pushed_at, technology,
+  run_id, snapshot_id, model_name, pushed_at, run_label, run_type, technology,
   MAX(CASE WHEN input_name = 'ITC Eligibility %'                    THEN value_num  END) AS itc_eligibility_pct,
   MAX(CASE WHEN input_name = 'ITC Rate'                             THEN value_num  END) AS itc_rate,
   MAX(CASE WHEN input_name = 'Effective Tax Rate'                   THEN value_num  END) AS effective_tax_rate,
@@ -204,7 +206,7 @@ SELECT
   CURRENT_TIMESTAMP() AS stg_created_at
 FROM src
 WHERE technology IN ('Solar','Wind','Gas','BESS','DTC')
-GROUP BY run_id, snapshot_id, model_name, pushed_at, technology;
+GROUP BY run_id, snapshot_id, model_name, pushed_at, run_label, run_type, technology;
 
 
 -- =============================================================================
@@ -220,7 +222,7 @@ WITH src AS (
   AND section = 'Underwriting & Financing Fees'
 )
 SELECT
-  run_id, snapshot_id, model_name, pushed_at, technology,
+  run_id, snapshot_id, model_name, pushed_at, run_label, run_type, technology,
   MAX(CASE WHEN input_name = 'Underwriting Fee'                        THEN value_num END) AS underwriting_fee_usd,
   MAX(CASE WHEN input_name = 'Transfer Transaction Cost (incl. Legal)' THEN value_num END) AS transfer_transaction_cost_usd,
   MAX(CASE WHEN input_name = 'Transfer Upfront Fee'                    THEN value_num END) AS transfer_upfront_fee_pct,
@@ -228,7 +230,7 @@ SELECT
   CURRENT_TIMESTAMP() AS stg_created_at
 FROM src
 WHERE technology IN ('Solar','Wind','Gas','BESS','DTC')
-GROUP BY run_id, snapshot_id, model_name, pushed_at, technology;
+GROUP BY run_id, snapshot_id, model_name, pushed_at, run_label, run_type, technology;
 
 
 -- =============================================================================
@@ -246,14 +248,14 @@ WITH src AS (
   AND source_row BETWEEN 124 AND 127
 )
 SELECT
-  run_id, snapshot_id, model_name, pushed_at, technology,
+  run_id, snapshot_id, model_name, pushed_at, run_label, run_type, technology,
   MAX(CASE WHEN input_name = 'Date of CAPEX Contingency Adder' THEN value_date END) AS capex_contingency_date,
   MAX(CASE WHEN input_name = 'CAPEX Contingency Amount'        THEN value_num  END) AS capex_contingency_usd,
   MAX(CASE WHEN input_name = 'Opex Contingency'                THEN value_num  END) AS opex_contingency_pct,
   CURRENT_TIMESTAMP() AS stg_created_at
 FROM src
 WHERE technology IN ('Solar','Wind','Gas','BESS','DTC')
-GROUP BY run_id, snapshot_id, model_name, pushed_at, technology;
+GROUP BY run_id, snapshot_id, model_name, pushed_at, run_label, run_type, technology;
 
 
 -- =============================================================================
@@ -292,7 +294,7 @@ capex_totals AS (
 )
 
 SELECT
-  s.run_id, s.snapshot_id, s.model_name, s.pushed_at,
+  s.run_id, s.snapshot_id, s.model_name, s.pushed_at, s.run_label, s.run_type,
   s.technology,
   s.input_name        AS component,
   s.value_num         AS dollar_per_w,
@@ -316,7 +318,7 @@ WITH src AS (
   AND section = 'OPEX'
 )
 SELECT
-  run_id, snapshot_id, model_name, pushed_at, technology,
+  run_id, snapshot_id, model_name, pushed_at, run_label, run_type, technology,
   MAX(CASE WHEN input_name = 'Toggle (Scheduled=1; Calculated=0)'                   THEN value_num END) AS land_lease_toggle,
   MAX(CASE WHEN input_name = 'Average $ / Acre'                                     THEN value_num END) AS land_lease_dollar_per_acre,
   MAX(CASE WHEN input_name = 'Total Acres'                                           THEN value_num END) AS land_lease_total_acres,
@@ -326,7 +328,7 @@ SELECT
   CURRENT_TIMESTAMP() AS stg_created_at
 FROM src
 WHERE technology IN ('Solar','Wind','Gas','BESS','DTC')
-GROUP BY run_id, snapshot_id, model_name, pushed_at, technology;
+GROUP BY run_id, snapshot_id, model_name, pushed_at, run_label, run_type, technology;
 
 
 -- =============================================================================
@@ -344,7 +346,7 @@ WITH src AS (
   AND source_row BETWEEN 163 AND 166
 )
 SELECT
-  run_id, snapshot_id, model_name, pushed_at, technology,
+  run_id, snapshot_id, model_name, pushed_at, run_label, run_type, technology,
   MAX(CASE WHEN input_name = 'Replacement Cost'                        THEN value_num END) AS replacement_cost_usd,
   MAX(CASE WHEN input_name = 'Estimated Yr1 Revenues'                  THEN value_num END) AS yr1_revenue_usd,
   MAX(CASE WHEN input_name = 'Premium Per Replacement Cost + Revenues' THEN value_num END) AS premium_rate,
@@ -352,7 +354,7 @@ SELECT
   CURRENT_TIMESTAMP() AS stg_created_at
 FROM src
 WHERE technology IN ('Solar','Wind','Gas','BESS','DTC')
-GROUP BY run_id, snapshot_id, model_name, pushed_at, technology;
+GROUP BY run_id, snapshot_id, model_name, pushed_at, run_label, run_type, technology;
 
 
 -- =============================================================================
@@ -369,7 +371,7 @@ WITH src AS (
   AND source_row BETWEEN 169 AND 176
 )
 SELECT
-  run_id, snapshot_id, model_name, pushed_at, technology,
+  run_id, snapshot_id, model_name, pushed_at, run_label, run_type, technology,
   MAX(CASE WHEN input_name = 'COD Year'                        THEN value_num END) AS cod_year,
   MAX(CASE WHEN input_name = 'Abatement Start Year (Accruals)' THEN value_num END) AS abatement_start_year,
   MAX(CASE WHEN input_name = 'Abatement Tenor (Years)'         THEN value_num END) AS abatement_tenor_years,
@@ -381,7 +383,7 @@ SELECT
   CURRENT_TIMESTAMP() AS stg_created_at
 FROM src
 WHERE technology IN ('Solar','Wind','Gas','BESS','DTC')
-GROUP BY run_id, snapshot_id, model_name, pushed_at, technology;
+GROUP BY run_id, snapshot_id, model_name, pushed_at, run_label, run_type, technology;
 
 
 -- =============================================================================
@@ -391,7 +393,7 @@ GROUP BY run_id, snapshot_id, model_name, pushed_at, technology;
 CREATE OR REPLACE TABLE `sandbox-lakehouse.stg_finance.v6_stg_franchise_tax` AS
 
 SELECT
-  run_id, snapshot_id, model_name, pushed_at, technology,
+  run_id, snapshot_id, model_name, pushed_at, run_label, run_type, technology,
   value_num           AS franchise_tax_pct_revenue,
   CURRENT_TIMESTAMP() AS stg_created_at
 FROM `sandbox-lakehouse.polaris_raw.v6_raw_inputs_tab`
@@ -415,7 +417,7 @@ WITH src AS (
   AND source_row BETWEEN 157 AND 161
 )
 SELECT
-  run_id, snapshot_id, model_name, pushed_at, technology,
+  run_id, snapshot_id, model_name, pushed_at, run_label, run_type, technology,
   MAX(CASE WHEN input_name = 'Toggle (Scheduled=1; Calculated=0)' THEN value_num END) AS toggle_scheduled,
   MAX(CASE WHEN input_name = 'Average $ / Acre'                   THEN value_num END) AS dollar_per_acre,
   MAX(CASE WHEN input_name = 'Total Acres'                        THEN value_num END) AS total_acres,
@@ -423,7 +425,7 @@ SELECT
   CURRENT_TIMESTAMP() AS stg_created_at
 FROM src
 WHERE technology IN ('Solar','Wind','Gas','BESS','DTC')
-GROUP BY run_id, snapshot_id, model_name, pushed_at, technology;
+GROUP BY run_id, snapshot_id, model_name, pushed_at, run_label, run_type, technology;
 
 
 -- =============================================================================
@@ -462,7 +464,7 @@ expense_names AS (
 )
 
 SELECT
-  s.run_id, s.snapshot_id, s.model_name, s.pushed_at,
+  s.run_id, s.snapshot_id, s.model_name, s.pushed_at, s.run_label, s.run_type,
   s.technology, s.filled_item_num AS line_item_num,
   en.expense_name, en.expense_type,
   MAX(CASE WHEN s.input_name = 'Year 1 Rate'               THEN s.value_num  END) AS yr1_rate,
@@ -481,7 +483,7 @@ WHERE s.technology IN ('Solar','Wind','Gas','BESS','DTC')
   AND s.filled_item_num IS NOT NULL
   AND s.input_name NOT IN ('Useful Life Expense','Fixed-term Expense','Expense')
 GROUP BY
-  s.run_id, s.snapshot_id, s.model_name, s.pushed_at,
+  s.run_id, s.snapshot_id, s.model_name, s.pushed_at, s.run_label, s.run_type,
   s.technology, s.filled_item_num, en.expense_name, en.expense_type;
 
 
@@ -500,7 +502,7 @@ WITH src AS (
   AND value_num IS NOT NULL
 )
 SELECT
-  run_id, snapshot_id, model_name, pushed_at,
+  run_id, snapshot_id, model_name, pushed_at, run_label, run_type,
   MAX(CASE WHEN input_name = 'Use Generic Fuel Price (No=0, Yes=1)'         THEN value_num END) AS use_generic_fuel_price,
   MAX(CASE WHEN input_name = 'Generic Fuel Price / MMBTU'                   THEN value_num END) AS generic_fuel_price_per_mmbtu,
   MAX(CASE WHEN input_name = 'Generic Fuel Price / MMBTU Annual Escalation' THEN value_num END) AS fuel_price_escalation,
@@ -515,7 +517,7 @@ SELECT
   MAX(CASE WHEN input_name = 'Lateral Escalator (%)'                        THEN value_num END) AS lateral_escalator,
   CURRENT_TIMESTAMP() AS stg_created_at
 FROM src
-GROUP BY run_id, snapshot_id, model_name, pushed_at;
+GROUP BY run_id, snapshot_id, model_name, pushed_at, run_label, run_type;
 
 
 -- =============================================================================
@@ -551,7 +553,7 @@ expense_names AS (
 )
 
 SELECT
-  s.run_id, s.snapshot_id, s.model_name, s.pushed_at,
+  s.run_id, s.snapshot_id, s.model_name, s.pushed_at, s.run_label, s.run_type,
   s.filled_item_num                                              AS line_item_num,
   en.expense_name,
   MAX(CASE WHEN s.input_name = 'Year 1 Rate'           THEN s.value_num END) AS yr1_rate,
@@ -563,7 +565,7 @@ FROM src s
 LEFT JOIN expense_names en ON s.filled_item_num = en.line_item_num
 WHERE s.filled_item_num IS NOT NULL
   AND s.input_name NOT IN ('Expense')
-GROUP BY s.run_id, s.snapshot_id, s.model_name, s.pushed_at, s.filled_item_num, en.expense_name;
+GROUP BY s.run_id, s.snapshot_id, s.model_name, s.pushed_at, s.run_label, s.run_type, s.filled_item_num, en.expense_name;
 
 
 -- =============================================================================
@@ -600,7 +602,7 @@ lc_names AS (
 )
 
 SELECT
-  s.run_id, s.snapshot_id, s.model_name, s.pushed_at,
+  s.run_id, s.snapshot_id, s.model_name, s.pushed_at, s.run_label, s.run_type,
   s.technology, s.filled_item_num AS line_item_num,
   ln.lc_label,
   MAX(CASE WHEN s.input_name = 'Start Period'  THEN s.value_date END) AS start_period,
@@ -617,7 +619,7 @@ WHERE s.technology IN ('Solar','Wind','Gas','BESS','DTC')
   AND s.filled_item_num IS NOT NULL
   AND s.input_name NOT LIKE 'Operating LC%'
 GROUP BY
-  s.run_id, s.snapshot_id, s.model_name, s.pushed_at,
+  s.run_id, s.snapshot_id, s.model_name, s.pushed_at, s.run_label, s.run_type,
   s.technology, s.filled_item_num, ln.lc_label;
 
 
