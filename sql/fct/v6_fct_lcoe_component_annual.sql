@@ -31,7 +31,7 @@ INSERT INTO `sandbox-lakehouse.fct_finance.lcoe_component_annual`
  lifetime_generation_mwh, run_id, pushed_at, run_label, created_at, run_type)
 WITH
 canonical AS (
-  SELECT run_id, pushed_at
+  SELECT run_id, pushed_at, run_label, run_type
   FROM `sandbox-lakehouse.stg_finance.v6_stg_project_timeline`
   ORDER BY pushed_at DESC LIMIT 1
 ),
@@ -133,8 +133,8 @@ SELECT
   ROUND(ca.lifetime_generation_mwh, 2) AS lifetime_generation_mwh,
   c.run_id,
   c.pushed_at,
-  'Monthly_Haul_04_2026' AS run_label,
+  c.run_label,
   CURRENT_TIMESTAMP() AS created_at,
-  'current_forecast' AS run_type
+  c.run_type
 FROM calc ca
 CROSS JOIN canonical c;

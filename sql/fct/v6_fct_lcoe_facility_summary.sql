@@ -29,7 +29,7 @@ INSERT INTO `sandbox-lakehouse.fct_finance.lcoe_facility_summary`
  run_label, run_type, created_at, run_id, pushed_at)
 WITH
 canonical AS (
-  SELECT run_id, pushed_at
+  SELECT run_id, pushed_at, run_label, run_type
   FROM `sandbox-lakehouse.stg_finance.v6_stg_project_timeline`
   ORDER BY pushed_at DESC LIMIT 1
 ),
@@ -66,8 +66,8 @@ SELECT
   ROUND(lca.total_revenue_usd, 2)         AS total_revenue_usd,
   ROUND(lca.lcoe_numerator_usd, 2)        AS lcoe_numerator_usd,
   ROUND(lca.lcoe_denominator, 2)          AS lcoe_denominator,
-  'Monthly_Haul_04_2026' AS run_label,
-  'current_forecast' AS run_type,
+  c.run_label,
+  c.run_type,
   CURRENT_TIMESTAMP()    AS created_at,
   c.run_id,
   c.pushed_at
@@ -87,8 +87,8 @@ SELECT
   ROUND(t.sum_revenue, 2)                                                          AS total_revenue_usd,
   ROUND(t.sum_numerator + gf.gas_lifetime_fuel_usd, 2)                             AS lcoe_numerator_usd,
   ROUND(d.dtc_denom_kwmo, 2)                                                       AS lcoe_denominator,
-  'Monthly_Haul_04_2026' AS run_label,
-  'current_forecast' AS run_type,
+  c.run_label,
+  c.run_type,
   CURRENT_TIMESTAMP()    AS created_at,
   c.run_id,
   c.pushed_at
