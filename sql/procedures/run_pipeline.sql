@@ -372,20 +372,16 @@ BEGIN
       ),
 
       capex_totals AS (
-        -- Total CAPEX rows land as row_type='header' (colC is null, so total check fails in Apps Script)
-        -- The total $ is in dollar_per_unit (col D). Source rows: Solar=37, Wind=72, BESS=107, Gas=142, DTC=177
+        -- Total CAPEX rows now carry `technology` and `total_usd` directly (Apps Script
+        -- schema update — was previously mapped via source_row + dollar_per_unit which
+        -- are now NULL on total rows).
         SELECT
-          CASE source_row
-            WHEN 37  THEN 'Solar'
-            WHEN 72  THEN 'Wind'
-            WHEN 107 THEN 'BESS'
-            WHEN 142 THEN 'Gas'
-            WHEN 177 THEN 'DTC'
-          END AS technology,
-          CAST(dollar_per_unit AS FLOAT64) AS total_capex_usd
+          technology,
+          SAFE_CAST(total_usd AS FLOAT64) AS total_capex_usd
         FROM `sandbox-lakehouse.polaris_raw.v6_raw_capex_tool`
         WHERE run_id = (SELECT current_run_id AS run_id)
-        AND source_row IN (37, 72, 107, 142, 177)
+          AND row_type = 'total'
+          AND technology IN ('Solar','Wind','Gas','BESS','DTC')
       )
 
       SELECT
