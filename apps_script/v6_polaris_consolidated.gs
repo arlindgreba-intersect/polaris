@@ -427,6 +427,7 @@ function _v6_loadBq(gcsUri, tableId) {
         sourceFormat: 'NEWLINE_DELIMITED_JSON',
         autodetect: true, writeDisposition: 'WRITE_APPEND',
         ignoreUnknownValues: true, maxBadRecords: 100,
+        schemaUpdateOptions: ['ALLOW_FIELD_ADDITION'],
       }},
     }),
     headers: { 'Authorization': 'Bearer ' + ScriptApp.getOAuthToken() },
