@@ -91,6 +91,7 @@ BEGIN
       DELETE FROM sandbox-lakehouse.fct_finance.revenue_monthly WHERE run_id = current_run_id;
       DELETE FROM sandbox-lakehouse.fct_finance.lcoe_component_annual WHERE run_id = current_run_id;
       DELETE FROM sandbox-lakehouse.fct_finance.lcoe_facility_summary WHERE run_id = current_run_id;
+      DELETE FROM sandbox-lakehouse.polaris_raw.run_audit WHERE run_id = current_run_id;
 
       INSERT INTO _log VALUES (CURRENT_TIMESTAMP(), 'DELETE_DONE', current_run_id, NULL);
 
@@ -3436,6 +3437,103 @@ BEGIN
       CROSS JOIN canonical c;
 
       INSERT INTO _log VALUES (CURRENT_TIMESTAMP(), 'FCT_LCOE_FACILITY_SUMMARY_DONE', current_run_id, NULL);
+
+      -- ---- AUDIT (33 rows, one per table) ----
+      INSERT INTO _log VALUES (CURRENT_TIMESTAMP(), 'AUDIT_START', current_run_id, NULL);
+
+      INSERT INTO `sandbox-lakehouse.polaris_raw.run_audit`
+      (run_id, run_label, run_type, table_name, layer, row_count, has_data, processed_at)
+      WITH
+      label_src AS (
+        SELECT MAX(run_label) AS run_label, MAX(run_type) AS run_type
+        FROM `sandbox-lakehouse.polaris_raw.v6_raw_inputs_tab`
+        WHERE run_id = current_run_id
+      ),
+      tbls AS (
+        SELECT * FROM UNNEST([
+          STRUCT('v6_stg_lcoe_model_controls' AS table_name, 'stg' AS layer),
+          STRUCT('v6_stg_project_timeline' AS table_name, 'stg' AS layer),
+          STRUCT('v6_stg_project_capacity' AS table_name, 'stg' AS layer),
+          STRUCT('v6_stg_generation_seasonality' AS table_name, 'stg' AS layer),
+          STRUCT('v6_stg_degradation' AS table_name, 'stg' AS layer),
+          STRUCT('v6_stg_tax_attributes' AS table_name, 'stg' AS layer),
+          STRUCT('v6_stg_financing_fees' AS table_name, 'stg' AS layer),
+          STRUCT('v6_stg_contingency' AS table_name, 'stg' AS layer),
+          STRUCT('v6_stg_capex_unit_cost' AS table_name, 'stg' AS layer),
+          STRUCT('v6_stg_opex_rates' AS table_name, 'stg' AS layer),
+          STRUCT('v6_stg_insurance' AS table_name, 'stg' AS layer),
+          STRUCT('v6_stg_property_tax' AS table_name, 'stg' AS layer),
+          STRUCT('v6_stg_franchise_tax' AS table_name, 'stg' AS layer),
+          STRUCT('v6_stg_land_lease' AS table_name, 'stg' AS layer),
+          STRUCT('v6_stg_other_expenses' AS table_name, 'stg' AS layer),
+          STRUCT('v6_stg_gas_opex' AS table_name, 'stg' AS layer),
+          STRUCT('v6_stg_dtc_opex' AS table_name, 'stg' AS layer),
+          STRUCT('v6_stg_operating_lcs' AS table_name, 'stg' AS layer),
+          STRUCT('v6_silver_project_inputs', 'silver'),
+          STRUCT('v6_silver_capex_components', 'silver'),
+          STRUCT('v6_silver_opex_all_rates', 'silver'),
+          STRUCT('v6_silver_generation_profile', 'silver'),
+          STRUCT('v6_silver_itc_inputs', 'silver'),
+          STRUCT('v6_silver_operating_lcs', 'silver'),
+          STRUCT('project_timeline_monthly', 'fct'),
+          STRUCT('generation_monthly', 'fct'),
+          STRUCT('project_capex_monthly', 'fct'),
+          STRUCT('project_opex_monthly', 'fct'),
+          STRUCT('tax_credit_monthly', 'fct'),
+          STRUCT('depreciation_monthly', 'fct'),
+          STRUCT('revenue_monthly', 'fct'),
+          STRUCT('lcoe_component_annual', 'fct'),
+          STRUCT('lcoe_facility_summary', 'fct')
+        ])
+      ),
+      counts AS (
+        SELECT 'v6_stg_lcoe_model_controls' AS table_name, COUNT(*) AS row_count FROM `sandbox-lakehouse.stg_finance.v6_stg_lcoe_model_controls` WHERE run_id = current_run_id
+        UNION ALL SELECT 'v6_stg_project_timeline' AS table_name, COUNT(*) AS row_count FROM `sandbox-lakehouse.stg_finance.v6_stg_project_timeline` WHERE run_id = current_run_id
+        UNION ALL SELECT 'v6_stg_project_capacity' AS table_name, COUNT(*) AS row_count FROM `sandbox-lakehouse.stg_finance.v6_stg_project_capacity` WHERE run_id = current_run_id
+        UNION ALL SELECT 'v6_stg_generation_seasonality' AS table_name, COUNT(*) AS row_count FROM `sandbox-lakehouse.stg_finance.v6_stg_generation_seasonality` WHERE run_id = current_run_id
+        UNION ALL SELECT 'v6_stg_degradation' AS table_name, COUNT(*) AS row_count FROM `sandbox-lakehouse.stg_finance.v6_stg_degradation` WHERE run_id = current_run_id
+        UNION ALL SELECT 'v6_stg_tax_attributes' AS table_name, COUNT(*) AS row_count FROM `sandbox-lakehouse.stg_finance.v6_stg_tax_attributes` WHERE run_id = current_run_id
+        UNION ALL SELECT 'v6_stg_financing_fees' AS table_name, COUNT(*) AS row_count FROM `sandbox-lakehouse.stg_finance.v6_stg_financing_fees` WHERE run_id = current_run_id
+        UNION ALL SELECT 'v6_stg_contingency' AS table_name, COUNT(*) AS row_count FROM `sandbox-lakehouse.stg_finance.v6_stg_contingency` WHERE run_id = current_run_id
+        UNION ALL SELECT 'v6_stg_capex_unit_cost' AS table_name, COUNT(*) AS row_count FROM `sandbox-lakehouse.stg_finance.v6_stg_capex_unit_cost` WHERE run_id = current_run_id
+        UNION ALL SELECT 'v6_stg_opex_rates' AS table_name, COUNT(*) AS row_count FROM `sandbox-lakehouse.stg_finance.v6_stg_opex_rates` WHERE run_id = current_run_id
+        UNION ALL SELECT 'v6_stg_insurance' AS table_name, COUNT(*) AS row_count FROM `sandbox-lakehouse.stg_finance.v6_stg_insurance` WHERE run_id = current_run_id
+        UNION ALL SELECT 'v6_stg_property_tax' AS table_name, COUNT(*) AS row_count FROM `sandbox-lakehouse.stg_finance.v6_stg_property_tax` WHERE run_id = current_run_id
+        UNION ALL SELECT 'v6_stg_franchise_tax' AS table_name, COUNT(*) AS row_count FROM `sandbox-lakehouse.stg_finance.v6_stg_franchise_tax` WHERE run_id = current_run_id
+        UNION ALL SELECT 'v6_stg_land_lease' AS table_name, COUNT(*) AS row_count FROM `sandbox-lakehouse.stg_finance.v6_stg_land_lease` WHERE run_id = current_run_id
+        UNION ALL SELECT 'v6_stg_other_expenses' AS table_name, COUNT(*) AS row_count FROM `sandbox-lakehouse.stg_finance.v6_stg_other_expenses` WHERE run_id = current_run_id
+        UNION ALL SELECT 'v6_stg_gas_opex' AS table_name, COUNT(*) AS row_count FROM `sandbox-lakehouse.stg_finance.v6_stg_gas_opex` WHERE run_id = current_run_id
+        UNION ALL SELECT 'v6_stg_dtc_opex' AS table_name, COUNT(*) AS row_count FROM `sandbox-lakehouse.stg_finance.v6_stg_dtc_opex` WHERE run_id = current_run_id
+        UNION ALL SELECT 'v6_stg_operating_lcs' AS table_name, COUNT(*) AS row_count FROM `sandbox-lakehouse.stg_finance.v6_stg_operating_lcs` WHERE run_id = current_run_id
+        UNION ALL SELECT 'v6_silver_project_inputs', COUNT(*) FROM `sandbox-lakehouse.mart_finance.v6_silver_project_inputs` WHERE run_id = current_run_id
+        UNION ALL SELECT 'v6_silver_capex_components', COUNT(*) FROM `sandbox-lakehouse.mart_finance.v6_silver_capex_components` WHERE run_id = current_run_id
+        UNION ALL SELECT 'v6_silver_opex_all_rates', COUNT(*) FROM `sandbox-lakehouse.mart_finance.v6_silver_opex_all_rates` WHERE run_id = current_run_id
+        UNION ALL SELECT 'v6_silver_generation_profile', COUNT(*) FROM `sandbox-lakehouse.mart_finance.v6_silver_generation_profile` WHERE run_id = current_run_id
+        UNION ALL SELECT 'v6_silver_itc_inputs', COUNT(*) FROM `sandbox-lakehouse.mart_finance.v6_silver_itc_inputs` WHERE run_id = current_run_id
+        UNION ALL SELECT 'v6_silver_operating_lcs', COUNT(*) FROM `sandbox-lakehouse.mart_finance.v6_silver_operating_lcs` WHERE run_id = current_run_id
+        UNION ALL SELECT 'project_timeline_monthly', COUNT(*) FROM `sandbox-lakehouse.fct_finance.project_timeline_monthly` WHERE run_id = current_run_id
+        UNION ALL SELECT 'generation_monthly', COUNT(*) FROM `sandbox-lakehouse.fct_finance.generation_monthly` WHERE run_id = current_run_id
+        UNION ALL SELECT 'project_capex_monthly', COUNT(*) FROM `sandbox-lakehouse.fct_finance.project_capex_monthly` WHERE run_id = current_run_id
+        UNION ALL SELECT 'project_opex_monthly', COUNT(*) FROM `sandbox-lakehouse.fct_finance.project_opex_monthly` WHERE run_id = current_run_id
+        UNION ALL SELECT 'tax_credit_monthly', COUNT(*) FROM `sandbox-lakehouse.fct_finance.tax_credit_monthly` WHERE run_id = current_run_id
+        UNION ALL SELECT 'depreciation_monthly', COUNT(*) FROM `sandbox-lakehouse.fct_finance.depreciation_monthly` WHERE run_id = current_run_id
+        UNION ALL SELECT 'revenue_monthly', COUNT(*) FROM `sandbox-lakehouse.fct_finance.revenue_monthly` WHERE run_id = current_run_id
+        UNION ALL SELECT 'lcoe_component_annual', COUNT(*) FROM `sandbox-lakehouse.fct_finance.lcoe_component_annual` WHERE run_id = current_run_id
+        UNION ALL SELECT 'lcoe_facility_summary', COUNT(*) FROM `sandbox-lakehouse.fct_finance.lcoe_facility_summary` WHERE run_id = current_run_id
+      )
+      SELECT
+        current_run_id      AS run_id,
+        (SELECT run_label FROM label_src) AS run_label,
+        (SELECT run_type  FROM label_src) AS run_type,
+        t.table_name,
+        t.layer,
+        COALESCE(c.row_count, 0)         AS row_count,
+        COALESCE(c.row_count, 0) > 0     AS has_data,
+        CURRENT_TIMESTAMP()              AS processed_at
+      FROM tbls t
+      LEFT JOIN counts c USING (table_name);
+
+      INSERT INTO _log VALUES (CURRENT_TIMESTAMP(), 'AUDIT_DONE', current_run_id, NULL);
 
       SET processed_count = processed_count + 1;
       INSERT INTO _log VALUES (CURRENT_TIMESTAMP(), 'RUN_DONE', current_run_id, NULL);

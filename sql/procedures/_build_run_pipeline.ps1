@@ -122,6 +122,8 @@ foreach ($t in $silverTables) {
 foreach ($t in $fctTables) {
   [void]$sb.AppendLine("      DELETE FROM `sandbox-lakehouse.fct_finance.$t` WHERE run_id = current_run_id;")
 }
+# Purge any prior audit rows for this run_id so the post-fct insert is idempotent.
+[void]$sb.AppendLine("      DELETE FROM `sandbox-lakehouse.polaris_raw.run_audit` WHERE run_id = current_run_id;")
 [void]$sb.AppendLine("")
 [void]$sb.AppendLine("      INSERT INTO _log VALUES (CURRENT_TIMESTAMP(), 'DELETE_DONE', current_run_id, NULL);")
 [void]$sb.AppendLine("")
@@ -218,6 +220,66 @@ foreach ($t in $fctTables) {
   [void]$sb.AppendLine("      INSERT INTO _log VALUES (CURRENT_TIMESTAMP(), 'FCT_$($t.ToUpper())_DONE', current_run_id, NULL);")
   [void]$sb.AppendLine("")
 }
+
+# ============================================================
+# AUDIT — write one row per (run_id, table) to polaris_raw.run_audit
+# ============================================================
+[void]$sb.AppendLine("      -- ---- AUDIT (33 rows, one per table) ----")
+[void]$sb.AppendLine("      INSERT INTO _log VALUES (CURRENT_TIMESTAMP(), 'AUDIT_START', current_run_id, NULL);")
+[void]$sb.AppendLine("")
+
+# Build the (table_name, layer, dataset) tuple list + per-table count UNION
+$auditTuples = @()
+$auditCounts = @()
+foreach ($t in $stgTables) {
+  $auditTuples += "STRUCT('$t' AS table_name, 'stg' AS layer)"
+  $auditCounts += "SELECT '$t' AS table_name, COUNT(*) AS row_count FROM ``sandbox-lakehouse.stg_finance.$t`` WHERE run_id = current_run_id"
+}
+foreach ($t in $silverTables) {
+  $auditTuples += "STRUCT('$t', 'silver')"
+  $auditCounts += "SELECT '$t', COUNT(*) FROM ``sandbox-lakehouse.mart_finance.$t`` WHERE run_id = current_run_id"
+}
+foreach ($t in $fctTables) {
+  $auditTuples += "STRUCT('$t', 'fct')"
+  $auditCounts += "SELECT '$t', COUNT(*) FROM ``sandbox-lakehouse.fct_finance.$t`` WHERE run_id = current_run_id"
+}
+$auditTuplesSql = $auditTuples -join ",`n          "
+$auditCountsSql = $auditCounts -join "`n        UNION ALL "
+
+$auditInsert = @"
+      INSERT INTO ``sandbox-lakehouse.polaris_raw.run_audit``
+      (run_id, run_label, run_type, table_name, layer, row_count, has_data, processed_at)
+      WITH
+      label_src AS (
+        SELECT MAX(run_label) AS run_label, MAX(run_type) AS run_type
+        FROM ``sandbox-lakehouse.polaris_raw.v6_raw_inputs_tab``
+        WHERE run_id = current_run_id
+      ),
+      tbls AS (
+        SELECT * FROM UNNEST([
+          $auditTuplesSql
+        ])
+      ),
+      counts AS (
+        $auditCountsSql
+      )
+      SELECT
+        current_run_id      AS run_id,
+        (SELECT run_label FROM label_src) AS run_label,
+        (SELECT run_type  FROM label_src) AS run_type,
+        t.table_name,
+        t.layer,
+        COALESCE(c.row_count, 0)         AS row_count,
+        COALESCE(c.row_count, 0) > 0     AS has_data,
+        CURRENT_TIMESTAMP()              AS processed_at
+      FROM tbls t
+      LEFT JOIN counts c USING (table_name);
+"@
+
+[void]$sb.AppendLine($auditInsert)
+[void]$sb.AppendLine("")
+[void]$sb.AppendLine("      INSERT INTO _log VALUES (CURRENT_TIMESTAMP(), 'AUDIT_DONE', current_run_id, NULL);")
+[void]$sb.AppendLine("")
 
 # ============================================================
 # Footer
