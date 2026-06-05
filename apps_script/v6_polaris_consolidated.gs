@@ -1322,6 +1322,42 @@ function v6_checkSetup() {
 }
 
 
+// Headless variant for invocation via the Apps Script Execution API (`clasp run`).
+// Accepts the target spreadsheet ID as a parameter, returns the result as a string
+// instead of calling ui.alert(). v6_checkSetup() stays intact for the sheet menu.
+function v6_checkSetup_cli(sheetId) {
+  if (!sheetId) {
+    return 'ERROR: sheetId is required. Call as: clasp run v6_checkSetup_cli --params \'["<spreadsheet-id>"]\'';
+  }
+  let ss;
+  try { ss = SpreadsheetApp.openById(sheetId); }
+  catch (e) { return 'ERROR: cannot open spreadsheet "' + sheetId + '": ' + e.message; }
+
+  const ok = [];
+  const issues = [];
+
+  ok.push('Spreadsheet: "' + ss.getName() + '" (id: ' + sheetId + ')');
+
+  for (const [key, name] of Object.entries(V6_CONFIG.tabs)) {
+    const sheet = ss.getSheetByName(name);
+    if (!sheet) issues.push('Tab not found: "' + name + '" (key: ' + key + ')');
+    else ok.push('Tab OK: "' + name + '" (' + sheet.getLastRow() + ' rows, ' + sheet.getLastColumn() + ' cols)');
+  }
+
+  ok.push('GCS: gs://' + V6_CONFIG.gcsBucket + '/' + V6_CONFIG.gcsPrefix + '/');
+  ok.push('BQ:  ' + V6_CONFIG.bqProjectId + '.' + V6_CONFIG.bqDatasetId);
+  ok.push('Mode: ' + (V6_CONFIG.devMode ? 'DEV (no writes)' : 'LIVE'));
+
+  try { ScriptApp.getOAuthToken(); ok.push('OAuth token available'); }
+  catch (e) { issues.push('OAuth error: ' + e.message); }
+
+  let msg = 'OK:\n  ' + ok.join('\n  ');
+  if (issues.length) msg += '\n\nISSUES:\n  ' + issues.join('\n  ');
+  else msg += '\n\nAll checks passed. Ready to push.';
+  return msg;
+}
+
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // SECTION 13 — DEV RUNNERS
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1371,9 +1407,10 @@ function v6_executeAllPush(label, runType, notes) {
   const snapDate   = _v6_fmtDate(new Date());
 
   const TABS = [
-    { name: 'Inputs',     fn: _v6_processInputs, slug: 'inputs_tab' },
-    { name: 'CAPEX_Tool', fn: _v6_processCapex,  slug: 'capex_tool' },
-    { name: 'Opex_Tool',  fn: _v6_processOpex,   slug: 'opex_tool'  },
+    { name: 'Inputs',       fn: _v6_processInputs,    slug: 'inputs_tab' },
+    { name: 'CAPEX_Tool',   fn: _v6_processCapex,     slug: 'capex_tool' },
+    { name: 'Opex_Tool',    fn: _v6_processOpex,      slug: 'opex_tool'  },
+    { name: '20yrLCOECalc', fn: _v6_processLcoeCalcs, slug: 'lcoe_calcs' },
   ];
 
   const lines = ['Run ID: ' + runId, ''];
