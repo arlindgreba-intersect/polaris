@@ -632,6 +632,7 @@ deduped AS (
       AND technology IS NOT NULL
       AND SAFE_CAST(row_label AS FLOAT64) IS NULL
       AND SAFE_CAST(CAST(total_usd AS STRING) AS FLOAT64) > 0
+      AND dollar_per_unit IS NOT NULL
   )
   WHERE rn = 1
 ),

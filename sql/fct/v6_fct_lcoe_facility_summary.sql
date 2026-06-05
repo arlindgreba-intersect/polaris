@@ -36,9 +36,20 @@ canonical AS (
 lca AS (
   SELECT * FROM `sandbox-lakehouse.fct_finance.lcoe_component_annual`
 ),
-dtc_denom AS (
-  SELECT lcoe_denominator AS dtc_denom_kwmo
+dtc_consumption AS (
+  SELECT SAFE_CAST(MAX(lifetime_total) AS FLOAT64) AS consumption_kwmo
+  FROM `sandbox-lakehouse.polaris_raw.v6_raw_lcoe_calcs`
+  WHERE technology = 'Facility'
+    AND metric     = 'DTC_Consumption'
+    AND run_id     = (SELECT run_id FROM canonical)
+),
+dtc_installed AS (
+  SELECT lcoe_denominator AS installed_kwmo
   FROM lca WHERE technology = 'DTC'
+),
+dtc_denom AS (
+  SELECT COALESCE(c.consumption_kwmo, i.installed_kwmo) AS dtc_denom_kwmo
+  FROM dtc_consumption c CROSS JOIN dtc_installed i
 ),
 gas_fuel AS (
   SELECT SUM(gas_fuel_monthly_usd) AS gas_lifetime_fuel_usd
