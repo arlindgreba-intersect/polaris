@@ -819,7 +819,6 @@ function _v6_processOpex(ss, runId, label, runType, notes, pushedAt, pushedBy, s
     const colE    = row[4];
     const colF    = row[5];
 
-    if (colBStr !== '' && !isNaN(parseFloat(colBStr)) && colC === '') continue;
     if (colC === '' && colBStr === '' && colD === null && colE === null && colF === null) continue;
 
     let rowType = 'other';
