@@ -67,7 +67,7 @@ opex_totals AS (
   SELECT *
   FROM `sandbox-lakehouse.stg_finance.v6_stg_opex_lifetime_totals`
   WHERE run_id = (
-    SELECT run_id FROM `sandbox-lakehouse.polaris_raw.v6_raw_inputs_tab`
+    SELECT run_id FROM `sandbox-lakehouse.stg_finance.v6_stg_opex_lifetime_totals`
     ORDER BY pushed_at DESC LIMIT 1
   )
 ),
@@ -77,7 +77,7 @@ om_schedules AS (
   SELECT *
   FROM `sandbox-lakehouse.stg_finance.v6_stg_om_schedules`
   WHERE run_id = (
-    SELECT run_id FROM `sandbox-lakehouse.polaris_raw.v6_raw_inputs_tab`
+    SELECT run_id FROM `sandbox-lakehouse.stg_finance.v6_stg_om_schedules`
     ORDER BY pushed_at DESC LIMIT 1
   )
 ),
@@ -323,21 +323,6 @@ wake_losses AS (
   WHERE t.technology = 'Wind'
 ),
 
--- ── COMPONENT 4b: Wake losses (Wind only, from Opex_Tool) ───────────────────
-wake_losses AS (
-  SELECT
-    t.calendar_month_end,
-    t.technology,
-    t.operating_year_num,
-    ROUND(
-      COALESCE(ot.wake_losses_lifetime_usd, 0)
-      / NULLIF(t.total_operating_months, 0)
-    , 2) AS wake_losses_monthly_usd
-  FROM timeline t
-  LEFT JOIN opex_totals ot ON ot.technology = t.technology
-  WHERE t.technology = 'Wind'
-),
-
 -- ── COMPONENT 5: Gas fuel (from Opex_Tool Fuel OpEx lifetime total) ──────────
 -- Fuel OpEx row_label in v6_raw_opex_tool = 'Fuel OpEx' = $6.34B
 -- Spread evenly over Gas operating months
@@ -429,7 +414,6 @@ LEFT JOIN property_tax  pt  ON pt.technology  = t.technology AND pt.calendar_mon
 LEFT JOIN other_expenses oe ON oe.technology  = t.technology AND oe.calendar_month_end  = t.calendar_month_end
 LEFT JOIN gas_fuel      gf  ON gf.technology  = t.technology AND gf.calendar_month_end  = t.calendar_month_end
 LEFT JOIN dtc_hv        dh  ON dh.technology  = t.technology AND dh.calendar_month_end  = t.calendar_month_end
-LEFT JOIN wake_losses    wl  ON wl.technology  = t.technology AND wl.calendar_month_end  = t.calendar_month_end
 LEFT JOIN wake_losses    wl  ON wl.technology  = t.technology AND wl.calendar_month_end  = t.calendar_month_end
 LEFT JOIN agg_lcs       lc  ON lc.technology  = t.technology AND lc.calendar_month_end  = t.calendar_month_end
 
