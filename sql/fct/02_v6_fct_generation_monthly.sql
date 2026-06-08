@@ -52,6 +52,7 @@ ops AS (
   FROM `sandbox-lakehouse.fct_finance.project_timeline_monthly`
   WHERE is_operation = TRUE
     AND technology IN ('Solar','Wind','Gas')
+    AND run_id = (SELECT run_id FROM canonical)
 )
 SELECT
   o.calendar_month_end,

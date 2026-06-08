@@ -40,4 +40,5 @@ SELECT
   c.run_type
 FROM `sandbox-lakehouse.fct_finance.project_timeline_monthly` t
 CROSS JOIN canonical c
-WHERE t.is_operation = TRUE;
+WHERE t.is_operation = TRUE
+  AND t.run_id = c.run_id;
