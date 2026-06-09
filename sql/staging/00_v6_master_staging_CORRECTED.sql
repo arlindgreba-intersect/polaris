@@ -283,7 +283,7 @@ capex_totals AS (
     technology,
     SAFE_CAST(total_usd AS FLOAT64) AS total_capex_usd
   FROM `sandbox-lakehouse.polaris_raw.v6_raw_capex_tool`
-  WHERE run_id = (SELECT run_id FROM `sandbox-lakehouse.polaris_raw.v6_raw_inputs_tab` ORDER BY pushed_at DESC LIMIT 1)
+  WHERE run_id = (SELECT run_id FROM `sandbox-lakehouse.polaris_raw.v6_raw_capex_tool` ORDER BY pushed_at DESC LIMIT 1)
     AND row_type = 'total'
     AND technology IN ('Solar','Wind','Gas','BESS','DTC')
 )
