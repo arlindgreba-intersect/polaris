@@ -94,9 +94,16 @@ gen AS (
   GROUP BY technology
 ),
 techs AS (
-  SELECT DISTINCT technology 
+  SELECT DISTINCT technology
   FROM `sandbox-lakehouse.fct_finance.project_timeline_monthly`
   WHERE run_id = 'run-20260607-000909-Case_8_Monthly_Haul-d4c63723'
+),
+op_months AS (
+  SELECT technology, COUNT(*) AS lifetime_op_months
+  FROM `sandbox-lakehouse.fct_finance.project_timeline_monthly`
+  WHERE is_operation = TRUE
+    AND run_id = 'run-20260607-000909-Case_8_Monthly_Haul-d4c63723'
+  GROUP BY technology
 ),
 calc AS (
   SELECT
@@ -112,7 +119,8 @@ calc AS (
     COALESCE(rv.total_revenue_usd, 0)      AS total_revenue_usd,
     COALESCE(g.lifetime_generation_mwh, 0) AS lifetime_generation_mwh,
     cap.installed_capacity_mw,
-    lf.useful_life_years
+    lf.useful_life_years,
+    om.lifetime_op_months
   FROM techs t
   LEFT JOIN capex cx ON cx.technology = t.technology
   LEFT JOIN opex ox ON ox.technology = t.technology
@@ -122,19 +130,20 @@ calc AS (
   LEFT JOIN gen g ON g.technology = t.technology
   LEFT JOIN capacity cap ON cap.technology = t.technology
   LEFT JOIN life lf ON lf.technology = t.technology
+  LEFT JOIN op_months om ON om.technology = t.technology
 )
 SELECT
   ca.technology,
   ROUND(ca.total_capex_usd + ca.total_opex_usd - ca.total_itc_usd - ca.total_dep_shield_usd - ca.total_revenue_usd, 2) AS lcoe_numerator_usd,
   ROUND(
     CASE WHEN ca.technology IN ('Solar','Wind') THEN ca.lifetime_generation_mwh
-         WHEN ca.technology IN ('BESS','Gas','DTC') THEN ca.installed_capacity_mw * 1000.0 * ca.useful_life_years * 12.0
+         WHEN ca.technology IN ('BESS','Gas','DTC') THEN ca.installed_capacity_mw * 1000.0 * COALESCE(ca.useful_life_years * 12.0, ca.lifetime_op_months)
     END, 2) AS lcoe_denominator,
   CASE WHEN ca.technology IN ('Solar','Wind') THEN 'MWh' ELSE 'kW-mo' END AS lcoe_denominator_unit,
   ROUND(SAFE_DIVIDE(
     ca.total_capex_usd + ca.total_opex_usd - ca.total_itc_usd - ca.total_dep_shield_usd - ca.total_revenue_usd,
     CASE WHEN ca.technology IN ('Solar','Wind') THEN ca.lifetime_generation_mwh
-         WHEN ca.technology IN ('BESS','Gas','DTC') THEN ca.installed_capacity_mw * 1000.0 * ca.useful_life_years * 12.0 END
+         WHEN ca.technology IN ('BESS','Gas','DTC') THEN ca.installed_capacity_mw * 1000.0 * COALESCE(ca.useful_life_years * 12.0, ca.lifetime_op_months) END
   ), 4) AS lcoe_usd_per_unit,
   ROUND(ca.total_capex_usd, 2)        AS total_capex_usd,
   ROUND(ca.total_opex_usd, 2)         AS total_opex_usd,
