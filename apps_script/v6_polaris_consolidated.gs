@@ -418,15 +418,34 @@ function _v6_uploadGcs(bucket, objectPath, jsonl) {
 }
 
 function _v6_loadBq(gcsUri, tableId) {
-  const url  = 'https://bigquery.googleapis.com/bigquery/v2/projects/' + V6_CONFIG.bqProjectId + '/jobs';
+  const proj = V6_CONFIG.bqProjectId, ds = V6_CONFIG.bqDatasetId;
+
+  // FMA-83: fetch existing table schema and pass it explicitly to avoid autodetect
+  // inferring INTEGER for whole-number values that should be FLOAT64.
+  const tblUrl = 'https://bigquery.googleapis.com/bigquery/v2/projects/' + proj +
+                 '/datasets/' + ds + '/tables/' + tableId;
+  const tblResp = UrlFetchApp.fetch(tblUrl, {
+    method: 'get',
+    headers: { 'Authorization': 'Bearer ' + ScriptApp.getOAuthToken() },
+    muteHttpExceptions: true,
+  });
+  if (tblResp.getResponseCode() !== 200) {
+    throw new Error('BQ tables.get HTTP ' + tblResp.getResponseCode() + ': ' +
+                    tblResp.getContentText().substring(0, 300));
+  }
+  const existingSchema = JSON.parse(tblResp.getContentText()).schema;
+
+  const url  = 'https://bigquery.googleapis.com/bigquery/v2/projects/' + proj + '/jobs';
   const resp = UrlFetchApp.fetch(url, {
     method: 'post', contentType: 'application/json',
     payload: JSON.stringify({
       configuration: { load: {
         sourceUris: [gcsUri],
-        destinationTable: { projectId: V6_CONFIG.bqProjectId, datasetId: V6_CONFIG.bqDatasetId, tableId },
+        destinationTable: { projectId: proj, datasetId: ds, tableId },
         sourceFormat: 'NEWLINE_DELIMITED_JSON',
-        autodetect: true, writeDisposition: 'WRITE_APPEND',
+        autodetect: false,
+        schema: existingSchema,
+        writeDisposition: 'WRITE_APPEND',
         ignoreUnknownValues: true, maxBadRecords: 100,
         schemaUpdateOptions: ['ALLOW_FIELD_ADDITION'],
       }},
