@@ -380,6 +380,7 @@ function _v6_sanitizeKey(str) {
 }
 
 function _v6_fmtVal(val) {
+  if (typeof val === 'number') return val * 1.0;
   if (val instanceof Date) return _v6_fmtDate(val);
   if (val === null || val === undefined || val === '' || val === 'N/A') return null;
   return val;
