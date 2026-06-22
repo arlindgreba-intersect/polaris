@@ -10,39 +10,48 @@
 -- monthly capex/opex aggregates.
 --
 -- INPUT SHAPE (raw):
---   885 rows (Wind 370 + BESS 8 + Gas 109 + DTC 67 + Solar 331)
+--   885 rows per push (Wind 370 + BESS 8 + Gas 109 + DTC 67 + Solar 331)
 --   17 metadata cols + 130 period_* FLOAT64 cols (Sep-2020 -> Jun-2031)
 --
 -- OUTPUT SHAPE (staging):
---   ~tens of thousands of rows, one per non-zero monthly spend cell.
+--   One row per non-zero monthly spend cell (3,708 per typical push).
 --   Filter: monthly_spend_usd IS NOT NULL AND monthly_spend_usd != 0.
 --
--- RUN SELECTION:
---   Always reads the latest run_id from v6_raw_forecast_inputs (by pushed_at).
---   Re-run this script after every fresh push from the sheet.
+-- RUN SELECTION (INCREMENTAL APPEND):
+--   This script INSERTs only rows whose run_id is not already present in the
+--   staging table. Re-running for an already-processed run is a no-op.
+--   To intentionally reprocess a run, manually DELETE its rows from staging
+--   first, then re-run this script.
 --
--- CLUSTERING:
---   CLUSTER BY technology, forecast_date — BQ does not support partitioning on a
---   STRING column. Clustering by technology + forecast_date keeps fct joins
---   efficient (filter pushdown on technology=, forecast_date range) without
---   needing a derived partition key.
+-- TABLE PROPERTIES (set once at table creation, preserved across inserts):
+--   CLUSTER BY technology, forecast_date — BQ does not support partitioning on
+--   a STRING column. Clustering keeps fct joins efficient (filter pushdown on
+--   technology=, forecast_date range) without needing a derived partition key.
 -- =============================================================================
 
-CREATE OR REPLACE TABLE `sandbox-lakehouse.stg_finance.v6_stg_forecast_inputs`
-CLUSTER BY technology, forecast_date
-AS
+INSERT INTO `sandbox-lakehouse.stg_finance.v6_stg_forecast_inputs` (
+  run_id,
+  run_label,
+  run_type,
+  project_id,
+  technology,
+  cat,
+  acct_code,
+  budget_item,
+  vendor,
+  cost_type,
+  source_row,
+  forecast_date,
+  monthly_spend_usd
+)
 
-WITH latest_run AS (
-  SELECT run_id
-  FROM `sandbox-lakehouse.polaris_raw.v6_raw_forecast_inputs`
-  ORDER BY pushed_at DESC
-  LIMIT 1
-),
-
-src AS (
+WITH src AS (
   SELECT *
   FROM `sandbox-lakehouse.polaris_raw.v6_raw_forecast_inputs`
-  WHERE run_id = (SELECT run_id FROM latest_run)
+  WHERE run_id NOT IN (
+    SELECT DISTINCT run_id
+    FROM `sandbox-lakehouse.stg_finance.v6_stg_forecast_inputs`
+  )
 ),
 
 unpivoted AS (
